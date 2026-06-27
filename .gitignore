@@ -1,16 +1,49 @@
+# OS / editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
 # Python-generated files
 __pycache__/
-*.py[oc]
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
 build/
 dist/
+site/
 wheels/
-*.egg-info
+pip-wheel-metadata/
 
 # Virtual environments
-.venv
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# Node / frontend build output
+node_modules/
+dist-ssr/
+coverage/
+*.tsbuildinfo
+
+# Local environment files
+.env
+.env.*
+!.env.example
 
 # Runtime / generated artifacts
-.pytest_cache/
 data/audit_ledger.jsonl
 samples/clean/
 samples/fraud/
