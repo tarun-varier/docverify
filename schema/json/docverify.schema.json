@@ -1,0 +1,1107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docverify/schema/docverify.schema.json",
+  "title": "DocVerifySchema",
+  "description": "AUTO-GENERATED from schema/models.py by `python -m schema.generate` \u2014 do not edit.",
+  "type": "object",
+  "properties": {
+    "boundingBox": {
+      "$ref": "#/$defs/BoundingBox"
+    },
+    "anomalyRegion": {
+      "$ref": "#/$defs/AnomalyRegion"
+    },
+    "documentMetadata": {
+      "$ref": "#/$defs/DocumentMetadata"
+    },
+    "extractedFields": {
+      "$ref": "#/$defs/ExtractedFields"
+    },
+    "anomaly": {
+      "$ref": "#/$defs/Anomaly"
+    },
+    "document": {
+      "$ref": "#/$defs/Document"
+    },
+    "externalCheck": {
+      "$ref": "#/$defs/ExternalCheck"
+    },
+    "conflict": {
+      "$ref": "#/$defs/Conflict"
+    },
+    "auditEntry": {
+      "$ref": "#/$defs/AuditEntry"
+    },
+    "caseResult": {
+      "$ref": "#/$defs/CaseResult"
+    },
+    "applicant": {
+      "$ref": "#/$defs/Applicant"
+    },
+    "loan": {
+      "$ref": "#/$defs/Loan"
+    },
+    "decision": {
+      "$ref": "#/$defs/Decision"
+    },
+    "case": {
+      "$ref": "#/$defs/Case"
+    },
+    "user": {
+      "$ref": "#/$defs/User"
+    },
+    "integration": {
+      "$ref": "#/$defs/Integration"
+    }
+  },
+  "$defs": {
+    "Anomaly": {
+      "description": "A single detected anomaly.\n\n``code`` is the stable machine identifier the ML/registry layers emit;\n``layer`` is which engine found it (provenance); ``category`` is how it is\ngrouped for the underwriter (derive both from :mod:`schema.enums`).",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "code": {
+          "default": "",
+          "type": "string"
+        },
+        "layer": {
+          "$ref": "#/$defs/AnomalyLayer"
+        },
+        "category": {
+          "$ref": "#/$defs/AnomalyCategory"
+        },
+        "severity": {
+          "$ref": "#/$defs/RiskBand"
+        },
+        "title": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "documentIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "evidence": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "code",
+        "layer",
+        "category",
+        "severity",
+        "title",
+        "detail",
+        "documentIds",
+        "evidence"
+      ],
+      "title": "Anomaly",
+      "type": "object"
+    },
+    "AnomalyCategory": {
+      "description": "How a finding is grouped for the underwriter (display-facing).",
+      "enum": [
+        "Tamper Detection",
+        "Cross-Document Conflict",
+        "Metadata Anomaly",
+        "Registry Mismatch"
+      ],
+      "title": "AnomalyCategory",
+      "type": "string"
+    },
+    "AnomalyLayer": {
+      "description": "Which detection layer/engine produced a finding (provenance, ML-facing).",
+      "enum": [
+        "ingestion",
+        "tamper",
+        "cross_document",
+        "registry"
+      ],
+      "title": "AnomalyLayer",
+      "type": "string"
+    },
+    "AnomalyRegion": {
+      "description": "A flagged region drawn on a document page and linked to a finding.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "docId": {
+          "default": "",
+          "type": "string"
+        },
+        "page": {
+          "default": 1,
+          "type": "integer"
+        },
+        "label": {
+          "default": "",
+          "type": "string"
+        },
+        "box": {
+          "$ref": "#/$defs/BoundingBox"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "docId",
+        "page",
+        "label",
+        "box",
+        "source"
+      ],
+      "title": "AnomalyRegion",
+      "type": "object"
+    },
+    "Applicant": {
+      "description": "Applicant details captured at case creation (Screen 3).",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "pan": {
+          "type": "string"
+        },
+        "aadhaarMasked": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "dob": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "contact": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "address": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name",
+        "pan",
+        "aadhaarMasked",
+        "dob",
+        "contact",
+        "address"
+      ],
+      "title": "Applicant",
+      "type": "object"
+    },
+    "AuditEntry": {
+      "description": "One tamper-evident ledger record (hash-chained). The blockchain area owns\nthis shape; the chain is computed over the snake_case JSON in app/audit.py.",
+      "properties": {
+        "caseId": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "documentHashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "fraudScore": {
+          "type": "integer"
+        },
+        "riskBand": {
+          "$ref": "#/$defs/RiskBand"
+        },
+        "prevHash": {
+          "type": "string"
+        },
+        "entryHash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "caseId",
+        "timestamp",
+        "documentHashes",
+        "fraudScore",
+        "riskBand",
+        "prevHash",
+        "entryHash"
+      ],
+      "title": "AuditEntry",
+      "type": "object"
+    },
+    "BoundingBox": {
+      "description": "A rectangle over a document page.\n\n``units`` distinguishes UI coordinates (``pct`` \u2014 0..100 of page width/height,\nwhat the Document Viewer renders) from raw forensic pixels (``px``).",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "w": {
+          "type": "number"
+        },
+        "h": {
+          "type": "number"
+        },
+        "units": {
+          "default": "pct",
+          "type": "string"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "w",
+        "h",
+        "units"
+      ],
+      "title": "BoundingBox",
+      "type": "object"
+    },
+    "Case": {
+      "description": "The full case record \u2014 the primary read model for the frontend.\n\nDeliberately flat: applicant/loan context, the analysis projection and the\ndecision live side by side so the dashboard and report screens read one\nobject. Structured creation input uses :class:`Applicant` / :class:`Loan`.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "applicant": {
+          "type": "string"
+        },
+        "pan": {
+          "default": "",
+          "type": "string"
+        },
+        "loanType": {
+          "default": "",
+          "type": "string"
+        },
+        "loanAmount": {
+          "default": 0,
+          "type": "number"
+        },
+        "branch": {
+          "default": "",
+          "type": "string"
+        },
+        "officer": {
+          "default": "",
+          "type": "string"
+        },
+        "submittedAt": {
+          "default": "",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CaseStatus",
+          "default": "Uploading"
+        },
+        "score": {
+          "default": 0,
+          "type": "integer"
+        },
+        "risk": {
+          "$ref": "#/$defs/RiskBand",
+          "default": "low"
+        },
+        "docs": {
+          "items": {
+            "$ref": "#/$defs/Document"
+          },
+          "type": "array"
+        },
+        "anomalies": {
+          "items": {
+            "$ref": "#/$defs/Anomaly"
+          },
+          "type": "array"
+        },
+        "conflicts": {
+          "items": {
+            "$ref": "#/$defs/Conflict"
+          },
+          "type": "array"
+        },
+        "external": {
+          "items": {
+            "$ref": "#/$defs/ExternalCheck"
+          },
+          "type": "array"
+        },
+        "recommendedAction": {
+          "default": "",
+          "type": "string"
+        },
+        "recommendations": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "analyzedAt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "elapsedSeconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "decision": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Decision"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "hash": {
+          "default": "",
+          "type": "string"
+        },
+        "auditId": {
+          "default": "",
+          "type": "string"
+        },
+        "auditEntry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditEntry"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "applicant",
+        "pan",
+        "loanType",
+        "loanAmount",
+        "branch",
+        "officer",
+        "submittedAt",
+        "status",
+        "score",
+        "risk",
+        "docs",
+        "anomalies",
+        "conflicts",
+        "external",
+        "recommendedAction",
+        "recommendations",
+        "analyzedAt",
+        "elapsedSeconds",
+        "decision",
+        "hash",
+        "auditId",
+        "auditEntry"
+      ],
+      "title": "Case",
+      "type": "object"
+    },
+    "CaseResult": {
+      "description": "Full analysis result the pipeline produces for one bundle of documents.\n\nThis is the analysis *slice* \u2014 it knows only what the documents reveal. The\napplicant/loan context and the decision are merged in at the :class:`Case`\nlevel by the case service (see :func:`build_case`).",
+      "properties": {
+        "caseId": {
+          "type": "string"
+        },
+        "analyzedAt": {
+          "type": "string"
+        },
+        "elapsedSeconds": {
+          "type": "number"
+        },
+        "fraudScore": {
+          "type": "integer"
+        },
+        "riskBand": {
+          "$ref": "#/$defs/RiskBand"
+        },
+        "recommendedAction": {
+          "type": "string"
+        },
+        "recommendations": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "documents": {
+          "items": {
+            "$ref": "#/$defs/Document"
+          },
+          "type": "array"
+        },
+        "crossDocumentAnomalies": {
+          "items": {
+            "$ref": "#/$defs/Anomaly"
+          },
+          "type": "array"
+        },
+        "registryAnomalies": {
+          "items": {
+            "$ref": "#/$defs/Anomaly"
+          },
+          "type": "array"
+        },
+        "externalChecks": {
+          "items": {
+            "$ref": "#/$defs/ExternalCheck"
+          },
+          "type": "array"
+        },
+        "auditEntry": {
+          "$ref": "#/$defs/AuditEntry"
+        }
+      },
+      "required": [
+        "caseId",
+        "analyzedAt",
+        "elapsedSeconds",
+        "fraudScore",
+        "riskBand",
+        "recommendedAction",
+        "recommendations",
+        "documents",
+        "crossDocumentAnomalies",
+        "registryAnomalies",
+        "externalChecks",
+        "auditEntry"
+      ],
+      "title": "CaseResult",
+      "type": "object"
+    },
+    "CaseStatus": {
+      "enum": [
+        "Uploading",
+        "Processing",
+        "Ready for Review",
+        "Decision Recorded"
+      ],
+      "title": "CaseStatus",
+      "type": "string"
+    },
+    "Conflict": {
+      "description": "A distilled cross-document contradiction for the report's conflict panel.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "documentIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "documentIds"
+      ],
+      "title": "Conflict",
+      "type": "object"
+    },
+    "Decision": {
+      "description": "The underwriter's recorded decision (Screen 8).",
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/DecisionType"
+        },
+        "notes": {
+          "default": "",
+          "type": "string"
+        },
+        "by": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "notes",
+        "by",
+        "at"
+      ],
+      "title": "Decision",
+      "type": "object"
+    },
+    "DecisionType": {
+      "enum": [
+        "Approved",
+        "Approved with Conditions",
+        "Escalated",
+        "Rejected",
+        "Resubmission Requested"
+      ],
+      "title": "DecisionType",
+      "type": "string"
+    },
+    "DocCategory": {
+      "description": "Coarse upload bucket the officer files a document under (UI grouping).",
+      "enum": [
+        "land",
+        "legal",
+        "financial"
+      ],
+      "title": "DocCategory",
+      "type": "string"
+    },
+    "DocType": {
+      "description": "Fine-grained classification produced by the ML ingestion layer.",
+      "enum": [
+        "salary_slip",
+        "bank_statement",
+        "land_record",
+        "id_proof",
+        "legal",
+        "unknown"
+      ],
+      "title": "DocType",
+      "type": "string"
+    },
+    "Document": {
+      "description": "Per-document report: the uploaded file plus everything found in it.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "sha256": {
+          "default": "",
+          "type": "string"
+        },
+        "docType": {
+          "$ref": "#/$defs/DocType",
+          "default": "unknown"
+        },
+        "category": {
+          "$ref": "#/$defs/DocCategory",
+          "default": "legal"
+        },
+        "subScore": {
+          "default": 0,
+          "type": "integer"
+        },
+        "summary": {
+          "default": "",
+          "type": "string"
+        },
+        "size": {
+          "default": "",
+          "type": "string"
+        },
+        "pageCount": {
+          "default": 0,
+          "type": "integer"
+        },
+        "textChars": {
+          "default": 0,
+          "type": "integer"
+        },
+        "ocrUsed": {
+          "default": false,
+          "type": "boolean"
+        },
+        "fields": {
+          "$ref": "#/$defs/ExtractedFields"
+        },
+        "metadata": {
+          "$ref": "#/$defs/DocumentMetadata"
+        },
+        "anomalies": {
+          "items": {
+            "$ref": "#/$defs/Anomaly"
+          },
+          "type": "array"
+        },
+        "anomalyRegions": {
+          "items": {
+            "$ref": "#/$defs/AnomalyRegion"
+          },
+          "type": "array"
+        },
+        "suspiciousRegions": {
+          "items": {
+            "$ref": "#/$defs/BoundingBox"
+          },
+          "type": "array"
+        },
+        "elaImage": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "sha256",
+        "docType",
+        "category",
+        "subScore",
+        "summary",
+        "size",
+        "pageCount",
+        "textChars",
+        "ocrUsed",
+        "fields",
+        "metadata",
+        "anomalies",
+        "anomalyRegions",
+        "suspiciousRegions",
+        "elaImage"
+      ],
+      "title": "Document",
+      "type": "object"
+    },
+    "DocumentMetadata": {
+      "description": "Document provenance shown in the viewer. ``raw`` keeps the full,\ndetector-specific metadata dict the forensic layer extracted.",
+      "properties": {
+        "created": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "modified": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "software": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "pdfVersion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "raw": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "title": "DocumentMetadata",
+      "type": "object",
+      "required": [
+        "created",
+        "modified",
+        "software",
+        "pdfVersion",
+        "raw"
+      ]
+    },
+    "ExternalCheck": {
+      "description": "Result of one external-registry correlation (PAN / CIN / land registry).",
+      "properties": {
+        "check": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/ExternalCheckStatus"
+        },
+        "detail": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check",
+        "status",
+        "detail"
+      ],
+      "title": "ExternalCheck",
+      "type": "object"
+    },
+    "ExternalCheckStatus": {
+      "enum": [
+        "passed",
+        "failed",
+        "inconclusive"
+      ],
+      "title": "ExternalCheckStatus",
+      "type": "string"
+    },
+    "ExtractedFields": {
+      "description": "Structured fields the ML ingestion layer pulls out of a document.",
+      "properties": {
+        "applicantName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "pan": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "cin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "surveyNumber": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "monthlyIncome": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "salaryCredits": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "registrationDate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "address": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "dates": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "ExtractedFields",
+      "type": "object",
+      "required": [
+        "applicantName",
+        "pan",
+        "cin",
+        "surveyNumber",
+        "monthlyIncome",
+        "salaryCredits",
+        "registrationDate",
+        "address",
+        "dates"
+      ]
+    },
+    "Integration": {
+      "description": "External-registry integration status (Settings, Screen 12).",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/IntegrationStatus"
+        },
+        "updated": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name",
+        "status",
+        "updated"
+      ],
+      "title": "Integration",
+      "type": "object"
+    },
+    "IntegrationStatus": {
+      "enum": [
+        "Connected (Test)",
+        "Pending",
+        "Disconnected"
+      ],
+      "title": "IntegrationStatus",
+      "type": "string"
+    },
+    "Loan": {
+      "description": "Loan request details captured at case creation (Screen 3).",
+      "properties": {
+        "loanType": {
+          "$ref": "#/$defs/LoanType"
+        },
+        "amount": {
+          "type": "number"
+        },
+        "branch": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "officer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "loanType",
+        "amount",
+        "branch",
+        "officer"
+      ],
+      "title": "Loan",
+      "type": "object"
+    },
+    "LoanType": {
+      "enum": [
+        "Home Loan",
+        "Business Loan",
+        "Personal Loan",
+        "Auto Loan"
+      ],
+      "title": "LoanType",
+      "type": "string"
+    },
+    "RiskBand": {
+      "description": "Case-level risk and per-anomaly severity as shown to the underwriter.\n\nThis is the frontend's ``RiskLevel``. Four levels, lower-case, so the UI can\nlook up ``var(--risk-<value>)`` directly.",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "RiskBand",
+      "type": "string"
+    },
+    "User": {
+      "description": "A provisioned bank user (Admin panel, Screen 11).",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "employeeId": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/UserRole"
+        },
+        "branch": {
+          "default": "",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/UserStatus",
+          "default": "Active"
+        },
+        "lastLogin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "employeeId",
+        "email",
+        "role",
+        "branch",
+        "status",
+        "lastLogin"
+      ],
+      "title": "User",
+      "type": "object"
+    },
+    "UserRole": {
+      "enum": [
+        "Underwriter",
+        "Senior Underwriter",
+        "Admin"
+      ],
+      "title": "UserRole",
+      "type": "string"
+    },
+    "UserStatus": {
+      "enum": [
+        "Active",
+        "Inactive"
+      ],
+      "title": "UserStatus",
+      "type": "string"
+    }
+  }
+}
