@@ -8,7 +8,7 @@ from typing import Any, Dict
 # Environment Variable Configurations
 MAX_FILE_SIZE_MB = float(os.getenv("MAX_FILE_SIZE_MB", "10"))
 MAX_FILE_SIZE_BYTES = int(MAX_FILE_SIZE_MB * 1024 * 1024)
-ML_SERVICE_URL = os.getenv("ML_SERVICE_URL", "http://localhost:8001/predict")
+ML_SERVICE_URL = os.getenv("ML_SERVICE_URL", "http://127.0.0.1:8001/predict")
 ALLOWED_MIME_TYPES = os.getenv("ALLOWED_MIME_TYPES", "application/pdf").split(",")
 
 # Configure Structured JSON Logging
