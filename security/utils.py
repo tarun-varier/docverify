@@ -5,10 +5,21 @@ import os
 import sys
 from typing import Any, Dict
 
+def resolve_ml_service_url() -> str:
+    configured_url = os.getenv("ML_SERVICE_URL")
+    if configured_url:
+        return configured_url
+
+    if os.path.exists("/.dockerenv") or os.getenv("DOCKER_CONTAINER", "").lower() in {"1", "true", "yes"}:
+        return "http://model:8001/predict"
+
+    return "http://localhost:8001/predict"
+
+
 # Environment Variable Configurations
 MAX_FILE_SIZE_MB = float(os.getenv("MAX_FILE_SIZE_MB", "10"))
 MAX_FILE_SIZE_BYTES = int(MAX_FILE_SIZE_MB * 1024 * 1024)
-ML_SERVICE_URL = os.getenv("ML_SERVICE_URL", "http://127.0.0.1:8001/predict")
+ML_SERVICE_URL = resolve_ml_service_url()
 ALLOWED_MIME_TYPES = os.getenv("ALLOWED_MIME_TYPES", "application/pdf").split(",")
 
 # Configure Structured JSON Logging

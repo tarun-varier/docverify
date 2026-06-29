@@ -14,7 +14,7 @@ uv run python samples/generate_samples.py   # build demo document bundles
 uv run uvicorn app.main:app --reload     # start the dashboard
 ```
 
-Open <http://127.0.0.1:8000>, drop in everything from `samples/fraud/`
+Open <http://localhost:8000>, drop in everything from `samples/fraud/`
 (or `samples/clean/`) and click **Analyze Bundle**.
 
 OCR for scanned documents/photos uses the system `tesseract` binary if

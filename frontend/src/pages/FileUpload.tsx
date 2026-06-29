@@ -25,7 +25,18 @@ type UploadResponse = {
 	size?: number
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? import.meta.env.VITE_BACKEND_URL ?? 'http://127.0.0.1:8000'
+const API_BASE_URL = (() => {
+	const configuredUrl = import.meta.env.VITE_API_URL ?? import.meta.env.VITE_BACKEND_URL
+	if (configuredUrl) {
+		return configuredUrl.replace(/\/$/, '')
+	}
+
+	if (typeof window !== 'undefined' && window.location.hostname) {
+		return `${window.location.protocol}//${window.location.hostname}:8000`
+	}
+
+	return 'http://localhost:8000'
+})()
 
 export default function FileUpload() {
 	const [selectedFile, setSelectedFile] = useState<File | null>(null)
