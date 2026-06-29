@@ -1,0 +1,55 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: docverify-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_BACKEND_URL=http://localhost:8000
+    depends_on:
+      - backend
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: docverify-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - SECURITY_GATEWAY_URL=http://security:8002
+      - SECURITY_GATEWAY_PATH=/scan
+    depends_on:
+      - security
+
+  security:
+    build:
+      context: ./security
+      dockerfile: Dockerfile
+    container_name: docverify-security-gateway
+    ports:
+      - "8002:8002"
+    environment:
+      - ML_SERVICE_URL=http://model:8001/predict
+      - MAX_FILE_SIZE_MB=10
+      - ALLOWED_MIME_TYPES=application/pdf
+    # Security Hardening Configurations
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=100m
+    depends_on:
+      - model
+
+  model:
+    build:
+      context: ./model
+      dockerfile: Dockerfile
+    container_name: docverify-ml-model
+    ports:
+      - "8001:8001"

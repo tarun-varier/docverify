@@ -16,8 +16,8 @@ app = FastAPI(
     version="1.0.0"
 )
 
-SANDBOX_SERVICE_URL = os.getenv("SANDBOX_SERVICE_URL", "http://localhost:8001")
-SANDBOX_SERVICE_PATH = os.getenv("SANDBOX_SERVICE_PATH", "/api/scan")
+SECURITY_GATEWAY_URL = os.getenv("SECURITY_GATEWAY_URL", "http://localhost:8002")
+SECURITY_GATEWAY_PATH = os.getenv("SECURITY_GATEWAY_PATH", "/scan")
 
 
 class SandboxResultPayload(BaseModel):
@@ -34,7 +34,7 @@ latest_sandbox_results: dict[str, SandboxResultPayload] = {}
 # Enable CORS for frontend development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -73,7 +73,7 @@ async def upload_file(file: UploadFile = File(...)):
             "filename": file.filename,
             "content_type": file.content_type,
             "size": len(contents),
-            "status": "forwarded_to_sandbox",
+            "status": "forwarded_to_security_gateway",
         }
 
         multipart_head = (
@@ -84,8 +84,9 @@ async def upload_file(file: UploadFile = File(...)):
         multipart_tail = f"\r\n--{boundary}--\r\n".encode("utf-8")
         body = multipart_head + contents + multipart_tail
 
+        target_url = f"{SECURITY_GATEWAY_URL.rstrip('/')}{SECURITY_GATEWAY_PATH}"
         request = urllib.request.Request(
-            f"{SANDBOX_SERVICE_URL.rstrip('/')}{SANDBOX_SERVICE_PATH}",
+            target_url,
             data=body,
             method="POST",
             headers={
@@ -97,35 +98,32 @@ async def upload_file(file: UploadFile = File(...)):
 
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
-                response_body = response.read()
-                response_content_type = response.headers.get("Content-Type", "")
+                response_body = response.read().decode("utf-8")
+                try:
+                    gateway_result = json.loads(response_body)
+                except Exception:
+                    gateway_result = response_body
 
-                if "application/json" in response_content_type.lower() and response_body:
-                    sandbox_result = response_body.decode("utf-8")
-                elif response_body:
-                    sandbox_result = response_body.decode("utf-8", errors="ignore")
-                else:
-                    sandbox_result = None
+                pending_uploads[request_id]["status"] = "processed"
 
-                pending_uploads[request_id]["status"] = "waiting_for_callback"
+                return gateway_result
 
-                return {
-                    "message": "File forwarded to sandbox successfully.",
-                    "request_id": request_id,
-                    "filename": file.filename,
-                    "content_type": file.content_type,
-                    "size": len(contents),
-                    "sandbox_result": sandbox_result,
-                }
         except urllib.error.HTTPError as exc:
             error_body = exc.read().decode("utf-8", errors="ignore")
-            detail = error_body or f"Sandbox service returned HTTP {exc.code}."
+            try:
+                error_json = json.loads(error_body)
+                # If Security Gateway returned structured rejection JSON (e.g. detail field or status REJECTED)
+                detail = error_json.get("detail", error_json)
+            except Exception:
+                detail = error_body or f"Security Gateway returned HTTP {exc.code}."
+            
             raise HTTPException(status_code=exc.code, detail=detail)
+
         except urllib.error.URLError as exc:
             pending_uploads.pop(request_id, None)
             raise HTTPException(
                 status_code=503,
-                detail=f"Sandbox service unavailable at {SANDBOX_SERVICE_URL}{SANDBOX_SERVICE_PATH}: {exc.reason}",
+                detail=f"Security Gateway unavailable at {target_url}: {exc.reason}",
             )
     finally:
         await file.close()
