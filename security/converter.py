@@ -29,20 +29,17 @@ def convert_pdf_to_pngs(pdf_path: str, output_dir: str, dpi: int = 200, timeout:
         poppler_path = "/usr/local/bin"
 
     try:
-        # Convert PDF pages to PIL images using poppler / pdf2image
-        images = convert_from_path(
+        # Convert PDF pages directly to PNG files on disk to save memory (disk-streaming)
+        png_paths = convert_from_path(
             pdf_path,
             dpi=dpi,
             fmt="png",
             timeout=timeout,
-            poppler_path=poppler_path
+            poppler_path=poppler_path,
+            output_folder=output_dir,
+            paths_only=True,
+            output_file="page"
         )
-
-        for index, image in enumerate(images):
-            png_filename = f"page_{index + 1}.png"
-            png_path = os.path.join(output_dir, png_filename)
-            image.save(png_path, "PNG")
-            png_paths.append(png_path)
 
         logger.info(f"Successfully converted PDF to {len(png_paths)} PNG page images.")
 
