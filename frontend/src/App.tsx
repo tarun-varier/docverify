@@ -1,4 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
+import './App.css'
+import FileUpload from './pages/FileUpload'
+
+export default function App() {
+  return <FileUpload />
+}
+/*
+import './App.css'
+import FileUpload from './pages/FileUpload'
+
+export default function App() {
+  return <FileUpload />
+}import React, { useState, useEffect, useRef } from 'react';
 import CircularProgress from './components/CircularProgress';
 import './App.css';
 
@@ -174,7 +186,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
-      {/* Sleek Header */}
+      {/* Sleek Header * /}
       <header className="border-b border-slate-900 bg-slate-950/80 backdrop-blur sticky top-0 z-50 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
@@ -195,7 +207,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Body */}
+      {/* Main Body * /}
       <main className="flex-1 max-w-6xl w-full mx-auto p-6 md:p-8 flex flex-col justify-center">
         {error && (
           <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 flex items-center justify-between text-sm animate-fade-in">
@@ -211,7 +223,7 @@ export default function App() {
           </div>
         )}
 
-        {/* State 1: Dropzone Uploader */}
+        {/* State 1: Dropzone Uploader * /}
         {!file && !scanning && !report && (
           <div className="max-w-2xl w-full mx-auto text-center space-y-8 py-10">
             <div className="space-y-3">
@@ -234,7 +246,7 @@ export default function App() {
                   : 'border-slate-800 hover:border-slate-700 bg-slate-900/20 hover:bg-slate-900/40'
               }`}
             >
-              {/* Glow effects */}
+              {/* Glow effects * /}
               <div className="absolute -inset-x-20 -inset-y-20 bg-indigo-500/5 blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
               
               <input
@@ -278,7 +290,7 @@ export default function App() {
           </div>
         )}
 
-        {/* State 2: Active Scanning Log */}
+        {/* State 2: Active Scanning Log * /}
         {scanning && (
           <div className="max-w-xl w-full mx-auto space-y-8 py-10 animate-pulse-slow">
             <div className="text-center space-y-4">
@@ -297,7 +309,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* Virtual Scanning Logs Console */}
+            {/* Virtual Scanning Logs Console * /}
             <div className="bg-slate-950 border border-slate-900 rounded-2xl p-5 font-mono text-xs text-indigo-300/80 shadow-2xl relative overflow-hidden h-64 flex flex-col justify-end">
               <div className="absolute inset-x-0 top-0 h-8 bg-slate-950 border-b border-slate-900/50 px-4 flex items-center justify-between text-slate-500 select-none">
                 <span>SANDBOX CONSOLE</span>
@@ -322,10 +334,10 @@ export default function App() {
           </div>
         )}
 
-        {/* State 3: Detailed Report */}
+        {/* State 3: Detailed Report * /}
         {report && !scanning && (
           <div className="space-y-6 py-6 animate-fade-in">
-            {/* Top Bar Actions */}
+            {/* Top Bar Actions * /}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-900 pb-4">
               <div>
                 <span className="text-xs text-indigo-400 font-bold uppercase tracking-widest">Analysis Finished</span>
@@ -342,9 +354,9 @@ export default function App() {
               </button>
             </div>
 
-            {/* Quick Threat Summary Cards */}
+            {/* Quick Threat Summary Cards * /}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Circular Gauge Card */}
+              {/* Circular Gauge Card * /}
               <div className="bg-slate-900/30 border border-slate-900 rounded-3xl p-6 flex flex-col items-center justify-center text-center shadow-lg relative overflow-hidden">
                 <div className="absolute top-4 left-4 text-xs text-slate-500 font-bold tracking-wider uppercase">Sandbox Assessment</div>
                 <CircularProgress
@@ -352,7 +364,7 @@ export default function App() {
                   riskLevel={report.risk_level}
                 />
                 
-                {/* Risk Level Explanation badge */}
+                {/* Risk Level Explanation badge * /}
                 <div 
                   className="mt-5 px-3 py-1 rounded-full text-xs font-bold"
                   style={getRiskBadgeStyles(report.risk_level)}
@@ -361,7 +373,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* File Core Stats Card */}
+              {/* File Core Stats Card * /}
               <div className="bg-slate-900/30 border border-slate-900 rounded-3xl p-6 flex flex-col justify-between shadow-lg relative overflow-hidden">
                 <div className="text-xs text-slate-500 font-bold tracking-wider uppercase mb-4">File Details</div>
                 <div className="space-y-4 flex-1 flex flex-col justify-center">
@@ -387,7 +399,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Detected Structural Flags Card */}
+              {/* Detected Structural Flags Card * /}
               <div className="bg-slate-900/30 border border-slate-900 rounded-3xl p-6 flex flex-col justify-between shadow-lg relative overflow-hidden">
                 <div className="text-xs text-slate-500 font-bold tracking-wider uppercase mb-4">Threat Elements (Raw Tags)</div>
                 <div className="grid grid-cols-2 gap-3 flex-1 items-center">
@@ -411,7 +423,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* Detailed Warnings / Findings */}
+            {/* Detailed Warnings / Findings * /}
             {report.findings.length > 0 ? (
               <div className="space-y-3">
                 <h3 className="text-base font-bold text-slate-300 uppercase tracking-wider">Sandbox Diagnostics ({report.findings.length})</h3>
@@ -458,9 +470,9 @@ export default function App() {
               </div>
             )}
 
-            {/* Columns for Extracted URLs & Metadata */}
+            {/* Columns for Extracted URLs & Metadata * /}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Links list */}
+              {/* Links list * /}
               <div className="bg-slate-900/20 border border-slate-900 rounded-3xl p-6 flex flex-col">
                 <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center justify-between">
                   <span>Extracted Links ({report.extracted_links.length})</span>
@@ -476,7 +488,7 @@ export default function App() {
                           <p className="text-slate-400 font-mono truncate">{link.url}</p>
                           <span className="text-[10px] text-slate-500">Found on page: {link.page}</span>
                         </div>
-                        {/* Copy button */}
+                        {/* Copy button * /}
                         <button
                           onClick={() => navigator.clipboard.writeText(link.url)}
                           className="shrink-0 px-2.5 py-1.5 bg-slate-900 border border-slate-805 hover:bg-indigo-500 hover:text-white rounded-lg text-slate-400 text-[10px] font-semibold transition-all"
@@ -493,7 +505,7 @@ export default function App() {
                 )}
               </div>
 
-              {/* Metadata list */}
+              {/* Metadata list * /}
               <div className="bg-slate-900/20 border border-slate-900 rounded-3xl p-6 flex flex-col">
                 <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center justify-between">
                   <span>Document Metadata</span>
@@ -521,10 +533,11 @@ export default function App() {
         )}
       </main>
 
-      {/* Footer */}
+      {/* Footer * /}
       <footer className="border-t border-slate-900 py-6 text-center text-xs text-slate-600 bg-slate-950 mt-10">
         <p>DocVerify Security Sandbox Engine v1.0.0 — 100% Offline Static & Heuristic Scan</p>
       </footer>
     </div>
   );
 }
+*/
