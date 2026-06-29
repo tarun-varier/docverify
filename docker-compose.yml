@@ -7,23 +7,41 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - VITE_API_URL=http://127.0.0.1:8000
-      - VITE_BACKEND_URL=http://127.0.0.1:8000
+      - VITE_API_URL=http://localhost:8000
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    networks:
+      - docverify-net
+    restart: unless-stopped
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: docverify-backend
     ports:
       - "8000:8000"
     environment:
       - SECURITY_GATEWAY_URL=http://security:8002
       - SECURITY_GATEWAY_PATH=/scan
+      - SANDBOX_SERVICE_URL=http://security:8002
+      - SANDBOX_SERVICE_PATH=/scan
+      - DATABASE_URL=postgresql://docverify:docverify_pass@db:5432/docverify_db
     depends_on:
-      - security
+      db:
+        condition: service_healthy
+      security:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - docverify-net
+    restart: unless-stopped
 
   security:
     build:
@@ -36,16 +54,22 @@ services:
       - ML_SERVICE_URL=http://model:8001/predict
       - MAX_FILE_SIZE_MB=10
       - ALLOWED_MIME_TYPES=application/pdf
-    # Security Hardening Configurations
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 512M
+    depends_on:
+      model:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8002/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    mem_limit: 512m
+    cpus: 1.0
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=100m
-    depends_on:
-      - model
+    networks:
+      - docverify-net
+    restart: unless-stopped
 
   model:
     build:
@@ -54,3 +78,41 @@ services:
     container_name: docverify-ml-model
     ports:
       - "8001:8001"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - docverify-net
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    container_name: docverify-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=docverify
+      - POSTGRES_PASSWORD=docverify_pass
+      - POSTGRES_DB=docverify_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U docverify -d docverify_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - docverify-net
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  docverify-net:
+    driver: bridge

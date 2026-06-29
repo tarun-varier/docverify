@@ -16,8 +16,24 @@ app = FastAPI(
     version="1.0.0"
 )
 
-SECURITY_GATEWAY_URL = os.getenv("SECURITY_GATEWAY_URL", "http://127.0.0.1:8002")
-SECURITY_GATEWAY_PATH = os.getenv("SECURITY_GATEWAY_PATH", "/scan")
+
+def resolve_security_gateway_url() -> str:
+    configured_url = os.getenv("SECURITY_GATEWAY_URL") or os.getenv("SANDBOX_SERVICE_URL")
+    if configured_url:
+        return configured_url
+
+    if os.path.exists("/.dockerenv") or os.getenv("DOCKER_CONTAINER", "").lower() in {"1", "true", "yes"}:
+        return "http://security:8002"
+
+    return "http://127.0.0.1:8002"
+
+
+def resolve_security_gateway_path() -> str:
+    return os.getenv("SECURITY_GATEWAY_PATH") or os.getenv("SANDBOX_SERVICE_PATH") or "/scan"
+
+
+SECURITY_GATEWAY_URL = resolve_security_gateway_url()
+SECURITY_GATEWAY_PATH = resolve_security_gateway_path()
 
 
 class SandboxResultPayload(BaseModel):
