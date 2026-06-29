@@ -31,19 +31,39 @@ _ACTION_TEMPLATES: dict[str, str] = {
                                   "fabricated deed — escalate.",
 }
 
+DIMINISHING_FACTOR = 0.85
+MAX_SCORE = 100
 
 def fraud_score(anomalies: list[Anomaly]) -> int:
-    """Diminishing-returns sum of severity weights, capped at 100."""
-    weights = sorted(
-        (SEVERITY_WEIGHTS[a.severity] for a in anomalies), reverse=True
-    )
+    """
+    Compute a fraud confidence score.
+
+    - Each anomaly type contributes only once.
+    - Higher-severity anomalies contribute more.
+    - Additional unique anomaly types have diminishing impact.
+    """
+
+    unique: dict[str, int] = {}
+
+    for anomaly in anomalies:
+        weight = SEVERITY_WEIGHTS[anomaly.severity]
+
+        if anomaly.code not in unique:
+            unique[anomaly.code] = weight
+        else:
+            unique[anomaly.code] = max(unique[anomaly.code], weight)
+
+    weights = sorted(unique.values(), reverse=True)
+
     score = 0.0
-    for rank, w in enumerate(weights):
-        score += w * (0.85 ** rank)
-    return min(100, round(score))
+    for rank, weight in enumerate(weights):
+        score += weight * (DIMINISHING_FACTOR ** rank)
+
+    return min(MAX_SCORE, round(score))
 
 
 def risk_band(score: int) -> str:
+    
     if score >= 70:
         return "CRITICAL"
     if score >= 40:

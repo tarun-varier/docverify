@@ -161,4 +161,9 @@ class CaseResult(BaseModel):
     documents: list[DocumentReport]
     cross_document_anomalies: list[Anomaly]
     registry_anomalies: list[Anomaly]
+    
+    llm_summary: dict[str, Any] = Field(
+    default_factory=dict,
+    description="AI-generated underwriting explanation produced from deterministic pipeline output.",
+    )
     audit_entry: dict[str, Any]

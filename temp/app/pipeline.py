@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 from . import audit, cross_check, forensics, ingestion, insights, registry
 from .models import Anomaly, CaseResult, DocumentReport, DocType, Severity
+from .llm import generate_underwriting_report
 
 
 def _analyze_document(filename: str, payload: bytes) -> DocumentReport:
@@ -74,6 +75,40 @@ def analyze_case(files: list[tuple[str, bytes]]) -> CaseResult:
     score = insights.fraud_score(everything)
     band = insights.risk_band(score)
 
+    llm_input = {
+        "fraud_score": score,
+        "risk_band": band,
+        "documents": [
+            {
+                "filename": d.filename,
+                "doc_type": d.doc_type.value,
+                "fields": d.fields.model_dump(),
+            }
+            for d in documents
+        ],
+        "anomalies": [
+            {
+                "code": a.code,
+                "severity": a.severity.value,
+                "detail": a.detail,
+            }
+            for a in everything
+        ],
+        "recommended_actions": insights.recommendations(everything),
+    }
+
+    try:
+        llm_summary = generate_underwriting_report(llm_input)
+    except Exception as exc:
+        llm_summary = {
+        "executive_summary": "AI underwriting summary unavailable.",
+        "key_findings": [],
+        "risk_analysis": "",
+        "recommended_actions": [],
+        "manual_review_required": True,
+        "underwriter_notes": f"LLM generation failed: {exc}",
+        }
+
     # Layer 7 — audit trail.
     entry = audit.record(
         case_id,
@@ -94,4 +129,5 @@ def analyze_case(files: list[tuple[str, bytes]]) -> CaseResult:
         cross_document_anomalies=cross_anomalies,
         registry_anomalies=registry_anomalies,
         audit_entry=entry,
+        llm_summary=llm_summary
     )
