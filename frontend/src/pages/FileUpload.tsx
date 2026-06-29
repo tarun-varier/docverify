@@ -32,10 +32,11 @@ const API_BASE_URL = (() => {
 	}
 
 	if (typeof window !== 'undefined' && window.location.hostname) {
-		return `${window.location.protocol}//${window.location.hostname}:8000`
+		const host = window.location.hostname === 'localhost' ? '127.0.0.1' : window.location.hostname
+		return `${window.location.protocol}//${host}:8000`
 	}
 
-	return 'http://localhost:8000'
+	return 'http://127.0.0.1:8000'
 })()
 
 export default function FileUpload() {

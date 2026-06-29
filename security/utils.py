@@ -13,7 +13,7 @@ def resolve_ml_service_url() -> str:
     if os.path.exists("/.dockerenv") or os.getenv("DOCKER_CONTAINER", "").lower() in {"1", "true", "yes"}:
         return "http://model:8001/predict"
 
-    return "http://localhost:8001/predict"
+    return "http://127.0.0.1:8001/predict"
 
 
 # Environment Variable Configurations

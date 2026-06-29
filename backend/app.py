@@ -25,7 +25,7 @@ def resolve_security_gateway_url() -> str:
     if os.path.exists("/.dockerenv") or os.getenv("DOCKER_CONTAINER", "").lower() in {"1", "true", "yes"}:
         return "http://security:8002"
 
-    return "http://localhost:8002"
+    return "http://127.0.0.1:8002"
 
 
 def resolve_security_gateway_path() -> str:
