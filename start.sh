@@ -34,7 +34,7 @@ trap cleanup SIGINT SIGTERM
 
 # 1. Start Security Gateway (Port 8002)
 echo -e "${GREEN}[1/4] Starting Security Gateway on Port 8002...${NC}"
-.venv/bin/python security/app.py > /dev/null 2>&1 &
+.venv/bin/python security/main.py > /dev/null 2>&1 &
 PIDS+=($!)
 
 # 2. Start ML Model Service (Port 8001)

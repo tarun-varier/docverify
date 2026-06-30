@@ -1,7 +1,6 @@
-fastapi>=0.100.0
-uvicorn>=0.22.0
-pypdf>=3.10.0
-pdf2image>=1.16.3
-pillow>=10.0.0
-requests>=2.31.0
-python-multipart>=0.0.6
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+pypdf>=4.0.0
+pdf2image>=1.17.0
+Pillow>=10.0.0

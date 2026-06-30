@@ -56,15 +56,15 @@ services:
       model:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8002/health || exit 1"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8002/health')\" || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 15s
-    mem_limit: 1024m
-    cpus: 1.0
+    mem_limit: 2048m
+    cpus: 1.5
     tmpfs:
-      - /tmp:rw,noexec,nosuid,size=512m
+      - /tmp:rw,nosuid,size=512m
     networks:
       - docverify-net
     restart: unless-stopped
@@ -82,6 +82,8 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
+    mem_limit: 1024m
+    cpus: 1.0
     networks:
       - docverify-net
     restart: unless-stopped
