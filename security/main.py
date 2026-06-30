@@ -322,3 +322,9 @@ async def scan_pdf_endpoint(
             except Exception:
                 pass
         gc.collect()
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8002, reload=True)
+

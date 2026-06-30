@@ -10,7 +10,7 @@ services:
       - VITE_API_URL=http://localhost:8000
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy
     networks:
       - docverify-net
     restart: unless-stopped
@@ -30,7 +30,7 @@ services:
       - DATABASE_URL=postgresql://docverify:docverify_pass@db:5432/docverify_db
     depends_on:
       security:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 10s
@@ -54,7 +54,7 @@ services:
       - ALLOWED_MIME_TYPES=application/pdf
     depends_on:
       model:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8002/health')\" || exit 1"]
       interval: 10s
