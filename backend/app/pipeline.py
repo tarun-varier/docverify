@@ -1,4 +1,4 @@
-"""Orchestrates Layers 1–7 over a bundle of uploaded documents."""
+"""Orchestrates Layers 1-7 over a bundle of uploaded documents."""
 
 from __future__ import annotations
 
