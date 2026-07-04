@@ -82,6 +82,10 @@ Notes: native text beats OCR when a text layer exists (exact vs noisy) and it's 
 
 ## Incremental path (do these one at a time, verify each)
 
+> **Progress:** Step 0 ✅, Step 1 ✅ (committed `6f56da3`), Step 3 ✅ (uncommitted — see note below). Next: **Step 4**.
+>
+> **Step 3 as-built (deviation from the sketch below):** the `EvidenceBundle` was defined as a **service-local HTTP wire contract** (`security/evidence.py`), *not* on the canonical `schema/` package. The three services build from **isolated Docker contexts** (`./security`, `./model`, `.`), so none can import a root-level `schema/` without restructuring build contexts — a cross-cutting change that is not a prerequisite for moving forensics. Full `schema/` adoption is therefore deferred to its own step. `pdf_anomalies` travel as plain dicts in `backend/pipeline/models.py::Anomaly` shape so `model` can rehydrate them. The **backdating** sub-check (needs Layer-1 fields) was deferred to Step 4; `security` carries the raw `pdf_metadata` in the bundle so `model` can reconstruct it. Forensics were **copied** (not moved) into `security/forensics.py`; the monolith's `backend/pipeline/forensics.py` copy stays until Step 4 retires it.
+
 **Step 0 — Unblock the name collision.** `backend/app.py` (proxy) vs `backend/app/` (package) makes `uvicorn app:app` load the wrong thing (audit §1). Rename the pipeline package (e.g. `backend/app/` → `backend/pipeline/`) or relocate it to the `model` service where most of it will live. Prerequisite for everything. *Verify:* backend imports unambiguously.
 
 **Step 1 — Prove the pipeline runs in isolation.** Add its deps (pymupdf, pytesseract, numpy, pillow, reportlab; system `tesseract`), restore `data/registries/*.json` from history (`git show 81e2b26:temp/data/registries/…`), guard/remove the missing `static/` mount, run `analyze_case()` on a sample PDF locally with the LLM gracefully off. *Verify:* a real CaseResult with real anomalies from a crafted tampered PDF. **This validates the detection substance before any topology surgery — the safe first win.**

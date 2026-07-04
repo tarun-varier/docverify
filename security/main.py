@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import gc
+import hashlib
 import logging
 from io import BytesIO
 from typing import Any
@@ -11,6 +12,9 @@ from fastapi.responses import JSONResponse
 from pdf2image import convert_from_bytes
 from PIL import Image
 from pypdf import PdfReader
+
+from evidence import EvidenceBundle
+from forensics import build_evidence
 
 logger = logging.getLogger("security_gateway")
 
@@ -222,6 +226,21 @@ async def scan_pdf_endpoint(
         # Step 2: Reject malicious content
         _reject_if_malicious(reader)
 
+        # Step 2.5: PDF-native forensics on the ORIGINAL bytes, BEFORE CDR
+        # flattens the pages and destroys the PDF structure these checks read
+        # (metadata, per-span fonts, %%EOF markers, the native text layer).
+        # Best-effort: forensics must never regress the security guarantee, so a
+        # failure here degrades to an empty bundle rather than rejecting a
+        # PDF that already passed static analysis.
+        sha256 = hashlib.sha256(raw_bytes).hexdigest()
+        try:
+            pdf_metadata, native_text, pdf_anomalies = build_evidence(
+                file.filename or "document.pdf", raw_bytes
+            )
+        except Exception as forensics_err:
+            logger.warning(f"PDF forensics failed (continuing with CDR): {forensics_err}")
+            pdf_metadata, native_text, pdf_anomalies = {}, [], []
+
         # Step 3: CDR — Convert PDF pages to images (sanitized flat pixels)
         try:
             images = convert_from_bytes(raw_bytes)
@@ -285,7 +304,10 @@ async def scan_pdf_endpoint(
                 "error": str(ml_err),
             }
 
-        # Step 5: Build response with sanitized page previews
+        # Step 5: Build the EvidenceBundle with sanitized page previews. The
+        # forensic findings + native text were captured on the original bytes
+        # above; `pages` are the flattened, safe artifacts everything downstream
+        # is allowed to see.
         try:
             pages_b64 = [_image_to_base64_png(image) for image in images]
         finally:
@@ -299,10 +321,17 @@ async def scan_pdf_endpoint(
             images = []  # prevent finally block from double-closing
             gc.collect()
 
+        bundle = EvidenceBundle(
+            sha256=sha256,
+            page_count=num_pages,
+            native_text=native_text,
+            pdf_anomalies=pdf_anomalies,
+            pdf_metadata={k: v for k, v in pdf_metadata.items() if v},
+            pages=pages_b64,
+        )
+
         return JSONResponse(content={
-            "status": "CLEAN_AND_SANITIZED",
-            "pages": pages_b64,
-            "page_count": num_pages,
+            **bundle.model_dump(),
             "ml_prediction": ml_result,
             "request_id": x_request_id,
         })
