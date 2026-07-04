@@ -50,8 +50,14 @@ def audit_verify() -> dict:
 
 
 @app.get("/")
-def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+def index():
+    # The bundled dashboard is optional; the API is usable without it.
+    if (STATIC_DIR / "index.html").is_file():
+        return FileResponse(STATIC_DIR / "index.html")
+    return {"service": "DocVerify Real-Time", "status": "running", "docs": "/docs"}
 
 
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# Only mount static assets when they are present — StaticFiles raises at import
+# time if the directory is missing, which would break the whole app.
+if STATIC_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
