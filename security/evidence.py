@@ -47,6 +47,7 @@ class EvidenceBundle(BaseModel):
     """
 
     status: str = "CLEAN_AND_SANITIZED"
+    filename: str = ""
     sha256: str
     page_count: int
     native_text: list[str] = Field(default_factory=list)

@@ -322,6 +322,7 @@ async def scan_pdf_endpoint(
             gc.collect()
 
         bundle = EvidenceBundle(
+            filename=file.filename or "document.pdf",
             sha256=sha256,
             page_count=num_pages,
             native_text=native_text,

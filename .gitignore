@@ -44,6 +44,6 @@ coverage/
 !.env.example
 
 # Runtime / generated artifacts
-data/audit_ledger.jsonl
+**/data/audit_ledger.jsonl
 samples/clean/
 samples/fraud/
