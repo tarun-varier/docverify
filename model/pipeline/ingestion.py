@@ -304,6 +304,90 @@ def _ocr_image(img: Image.Image) -> str:
     return pytesseract.image_to_string(img)
 
 
+# ---------------------------------------------------------------------------
+# Optional OCR preprocessing (deskew/denoise/binarize) via cv2.
+#
+# Lazily imported like semantic.py's sentence-transformers check, not an
+# eager module-level import like TESSERACT_AVAILABLE's shutil.which — cv2's
+# import cost (~100-300ms) shouldn't be paid at server startup for every
+# request when most pages have native text and never reach OCR at all.
+# ---------------------------------------------------------------------------
+
+_CV2_AVAILABLE: bool | None = None  # None = unchecked yet
+
+
+def _try_import_cv2() -> bool:
+    global _CV2_AVAILABLE
+    if _CV2_AVAILABLE is None:
+        try:
+            import cv2  # noqa: F401
+            _CV2_AVAILABLE = True
+        except ImportError:
+            _CV2_AVAILABLE = False
+    return _CV2_AVAILABLE
+
+
+def _preprocess_for_ocr(img: Image.Image) -> Image.Image:
+    """Deskew, denoise and binarize a scanned page before Tesseract.
+
+    Order matters: deskew first (rotating a clean grayscale avoids
+    compounding interpolation artifacts a later binarize/denoise step would
+    otherwise bake in), denoise before binarize (thresholding noisy pixels
+    first turns them into hard-edged speckles a median blur handles worse
+    than smooth grayscale noise).
+
+    Only called when cv2 is importable; any failure here is caught by the
+    caller and falls back to raw-image OCR, so a broken/missing opencv never
+    breaks OCR, only makes it less accurate on skewed/noisy scans.
+    """
+    import cv2
+    import numpy as np
+
+    arr = np.asarray(img.convert("L"))  # grayscale
+
+    # 1. Deskew: estimate angle from a throwaway Otsu binary mask, then
+    #    rotate the real grayscale pixels, not the mask. The mask is built
+    #    from a median-blurred copy, not the raw grayscale directly —
+    #    salt-and-pepper scan noise otherwise dominates Otsu's foreground
+    #    mask (its own scattered speckle looks like more "foreground" than
+    #    the actual text) and produces a bogus near-zero angle, silently
+    #    skipping deskew on exactly the noisy scans that need it most.
+    angle_estimation_input = cv2.medianBlur(arr, 3)
+    _, mask = cv2.threshold(angle_estimation_input, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    coords = cv2.findNonZero(mask)
+    if coords is not None:
+        rect_angle = cv2.minAreaRect(coords)[-1]
+        # OpenCV's angle convention wraps oddly across versions; normalize
+        # into [-45, 45] so small skews rotate by a small amount either way.
+        # NOTE: this is the *measured* skew, not the correction — verified
+        # empirically (see model/tests/test_ocr_preprocessing.py) that
+        # passing this value directly to getRotationMatrix2D doubles the
+        # skew instead of canceling it; the correction is its negation.
+        angle = -(90 + rect_angle) if rect_angle < -45 else -rect_angle
+        if abs(angle) > 0.5:  # skip rotation on already-straight scans
+            h, w = arr.shape
+            rot_matrix = cv2.getRotationMatrix2D((w / 2, h / 2), -angle, 1.0)
+            arr = cv2.warpAffine(arr, rot_matrix, (w, h), flags=cv2.INTER_CUBIC,
+                                  borderMode=cv2.BORDER_REPLICATE)
+
+    # 2. Denoise: median blur on grayscale — clears salt-and-pepper
+    #    scan/fax noise while preserving character-stroke edges better than
+    #    a Gaussian blur would; kernel=3 avoids eroding thin strokes.
+    arr = cv2.medianBlur(arr, 3)
+
+    # 3. Binarize: adaptive threshold, not a single global Otsu value —
+    #    scanned loan documents commonly have uneven lighting/shadow
+    #    gradients across the page that one global threshold handles poorly.
+    arr = cv2.adaptiveThreshold(arr, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                 cv2.THRESH_BINARY, blockSize=31, C=15)
+
+    # 4. Light morphological open — clears isolated noise specks the
+    #    adaptive threshold can introduce, without eroding real strokes.
+    arr = cv2.morphologyEx(arr, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
+
+    return Image.fromarray(arr).convert("L")
+
+
 def ocr_png(png_bytes: bytes) -> str:
     """OCR a single flattened page PNG — the safe artifact the model receives.
 
@@ -315,6 +399,11 @@ def ocr_png(png_bytes: bytes) -> str:
     if not TESSERACT_AVAILABLE:
         return ""
     img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
+    if _try_import_cv2():
+        try:
+            img = _preprocess_for_ocr(img)
+        except Exception:
+            logger.debug("OCR preprocessing failed; falling back to raw image", exc_info=True)
     return _ocr_image(img)
 
 
