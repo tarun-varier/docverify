@@ -133,6 +133,28 @@ def _run_ela(report: DocumentReport, bundle: EvidenceBundleIn) -> None:
     report.suspicious_regions = all_regions
 
 
+def _run_copy_move(report: DocumentReport, bundle: EvidenceBundleIn) -> None:
+    """Copy-move detection on every page, unconditionally.
+
+    Unlike _run_ela, this is NOT gated on native-text thinness — a pasted
+    image region (a copied seal/stamp) can appear on a vector-text PDF too,
+    since the paste itself is an image-level operation independent of
+    whatever text surrounds it.
+    """
+    all_regions: list[dict] = []
+    for idx, png_b64 in enumerate(bundle.pages, start=1):
+        try:
+            regions, anomalies = forensics.detect_copy_move(bundle.filename, base64.b64decode(png_b64))
+        except Exception:
+            continue
+        if regions:
+            all_regions.extend(regions)
+            for a in anomalies:
+                a.evidence = {**a.evidence, "page": idx}
+                report.anomalies.append(a)
+    report.copy_move_regions = all_regions
+
+
 def _analyze_document(bundle: EvidenceBundleIn) -> DocumentReport:
     report = DocumentReport(
         filename=bundle.filename,
@@ -155,6 +177,7 @@ def _analyze_document(bundle: EvidenceBundleIn) -> DocumentReport:
         forensics.backdating_from_metadata(bundle.filename, bundle.pdf_metadata, report.fields)
     )
     _run_ela(report, bundle)
+    _run_copy_move(report, bundle)
 
     return report
 

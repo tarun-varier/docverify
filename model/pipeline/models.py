@@ -143,6 +143,8 @@ class DocumentReport(BaseModel):
     # Updated comment only; field type and behaviour are unchanged.
     ela_image: Optional[str] = None  # base64 PNG heatmap (images and scanned PDFs)
     suspicious_regions: list[dict[str, int]] = Field(default_factory=list)
+    # Copy-move detector output (source/destination bbox + shift per region).
+    copy_move_regions: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class CaseResult(BaseModel):
