@@ -64,3 +64,17 @@ export async function analyzeCase(caseId: string): Promise<any> {
   });
   return parseOrThrow(res);
 }
+
+export interface CaseProgress {
+  phase: "idle" | "checking_ledger" | "running_pipeline" | "recording_audit" | "persisting_case" | "anchoring_ledger" | "done" | "error";
+  documents?: number;
+  ledger_cache_hit?: boolean;
+  detail?: string;
+  updated_at?: number;
+}
+
+/** Poll target for the real backend phase behind a running /analyze call. */
+export async function getCaseProgress(caseId: string): Promise<CaseProgress> {
+  const res = await fetch(`${API_BASE_URL}/cases/${encodeURIComponent(caseId)}/progress`);
+  return parseOrThrow(res);
+}
