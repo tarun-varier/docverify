@@ -147,11 +147,11 @@ _ANY_DATE_RE = re.compile(r"\b([0-9]{1,2}[-/][0-9]{1,2}[-/][0-9]{2,4}|[0-9]{4}-[
 # ---------------------------------------------------------------------------
 
 # Currency-formatted amount: thousands grouping (Indian 1,40,200 / Western
-# 140,200) and/or a 1-2 digit paise part.  Preferring formatted tokens lets us
-# ignore bare integers such as a year ("2024") or a reference number.
+# 140,200) and/or a 1-2 digit paise part. No bare-integer fallback: once
+# cells are matched to header columns by position (_money_columns), a bare
+# integer misread as an amount shifts every later cell's alignment, not just
+# its own -- real Indian bank statements almost always comma-format anyway.
 _MONEY_FMT_RE = re.compile(r"\d{1,3}(?:,\d{2,3})+(?:\.\d{1,2})?|\d+\.\d{1,2}")
-# Fallback: bare integer (>=3 digits) for statements printed without grouping.
-_MONEY_BARE_RE = re.compile(r"\d{3,}")
 
 _CREDIT_HEADER_RE = re.compile(r"\b(?:credit|deposit)\b")
 _DEBIT_HEADER_RE = re.compile(r"\b(?:debit|withdrawal)\b")
@@ -164,24 +164,43 @@ _COLUMN_GAP_RE = re.compile(r"\s{2,}")
 _SALARY_ROW_KEYWORDS = (
     "salary", "sal cr", "sal credit", "payroll", "wages", "remuneration",
 )
+# A recognised blank-cell placeholder (a bare dash, "NIL", "N/A") in a
+# debit/credit column. Kept as an explicit None in _money_columns' output
+# (rather than silently omitted) so a genuinely-empty column is
+# distinguishable from an alignment failure -- this is what lets
+# _pick_credit stop guessing about column position.
+_PLACEHOLDER_CELL_RE = re.compile(r"^[-–—]+$|^(?:nil|n/?a)$", re.IGNORECASE)
 
 
-def _money_tokens(line: str) -> list[float]:
-    """Return the currency amounts on a table row, left-to-right.
+def _money_columns(line: str) -> list[float | None]:
+    """Split a row into its columnar cells and classify the money-shaped ones.
 
-    Date substrings are stripped first so a "01/04/2024" or a "04/2024" in the
-    narration is never read as money.  Currency-formatted tokens (grouped or
-    with a decimal part) are preferred; only when a row carries none do we fall
-    back to bare integers, keeping plain reference numbers out of the result.
+    Uses the same >=2-space-gap convention _find_table_header uses to detect
+    a real header, so a cell is exactly one column's worth of a properly
+    tabular row. Each cell becomes: a float (a currency-formatted amount), or
+    None (a recognised blank placeholder), or is dropped entirely (narration,
+    a stray reference number, anything not money-shaped). Only formatted
+    tokens count as money -- no bare-integer fallback (real Indian bank
+    statements almost always comma-format; a bare-integer fallback can't
+    distinguish an unformatted amount from a reference number once cells are
+    matched to header columns by *position*, since a false hit shifts every
+    later cell's alignment, not just its own).
+
+    Position matters: a stray non-money cell has to be dropped rather than
+    "read past," because the caller aligns this list against the header's
+    column_order by zipping position-for-position, not by searching for a
+    keyword per column.
     """
     cleaned = _ANY_DATE_RE.sub(" ", line)
-    raw_tokens = _MONEY_FMT_RE.findall(cleaned) or _MONEY_BARE_RE.findall(cleaned)
-    values: list[float] = []
-    for tok in raw_tokens:
-        value = _to_float(tok)
-        if value is not None:
-            values.append(value)
-    return values
+    cells = [c.strip() for c in _COLUMN_GAP_RE.split(cleaned) if c.strip()]
+    out: list[float | None] = []
+    for cell in cells:
+        if _PLACEHOLDER_CELL_RE.match(cell):
+            out.append(None)
+        elif _MONEY_FMT_RE.fullmatch(cell):
+            out.append(_to_float(cell))
+        # else: narration/date/reference-number text -- not a money column.
+    return out
 
 
 def _find_table_header(lines: list[str]) -> tuple[int, list[str], bool] | None:
@@ -217,58 +236,59 @@ def _find_table_header(lines: list[str]) -> tuple[int, list[str], bool] | None:
     return None
 
 
-def _pick_credit(
-    values: list[float], column_order: list[str], has_balance: bool
-) -> float | None:
-    """Choose the credit amount from one salary row's money tokens.
+def _pick_credit(cells: list[float | None], column_order: list[str]) -> float | None:
+    """Choose the credit amount from one row's classified money cells.
 
-    The running balance is usually the rightmost money column, but some
-    statements print it first — we drop it from whichever end matches its
-    position in ``column_order`` rather than assuming rightmost.  If it's
-    reported in neither end (unusual layout) we leave the tokens untouched
-    rather than guess and risk dropping a real credit/debit figure.  A salary
-    row usually fills only the credit (debit blank), leaving one amount; when
-    both debit and credit are present we disambiguate by the header's column
-    order.
+    Name-based column lookup by position, replacing the old drop-from-
+    either-end heuristic entirely -- "balance" is just another named column
+    now, ignored if absent, so no separate has_balance flag is needed.
+
+    Only trusts a row when its money-cell count exactly matches the header's
+    column count: a mismatch (OCR noise, an unstripped embedded number, a
+    narration fragment that slipped past _money_columns' filtering) means
+    columns can't be confidently aligned, so the row is skipped rather than
+    guessed at -- a real bug in the previous drop-from-either-end approach
+    (see model/tests/test_l1_tables.py's dash-placeholder regression test)
+    silently mis-picked a debit amount as "the credit" on exactly this kind
+    of misalignment.
     """
-    amounts = list(values)
-    if has_balance and amounts and column_order:
-        if column_order[-1] == "balance":
-            amounts = amounts[:-1]
-        elif column_order[0] == "balance":
-            amounts = amounts[1:]
-    if not amounts:
+    if len(cells) != len(column_order):
         return None
-    if len(amounts) == 1:
-        return amounts[0]
-    money_cols = [c for c in column_order if c != "balance"]
-    # Credit is the leftmost amount only when the header lists credit before debit.
-    if money_cols and money_cols[0] == "credit":
-        return amounts[0]
-    return amounts[-1]
+    return dict(zip(column_order, cells)).get("credit")
 
 
-def _extract_salary_credits(text: str) -> list[float]:
-    """Table-aware salary-credit extraction from a bank statement's flat text.
+def _extract_table_credits(text: str, row_keywords: tuple[str, ...] | None = None) -> list[float]:
+    """Table-aware credit-column extraction from a bank statement's flat text.
 
-    Returns the credit-column amounts of the rows whose narration names a salary
-    deposit.  Returns ``[]`` when no transaction table is detected, letting the
-    caller fall back to the loose single-line regex (graceful degrade).
+    With row_keywords, only rows whose narration matches one of the given
+    keywords are candidates (the historical salary-only behavior). With
+    row_keywords=None, every row under the detected header is a candidate --
+    used for a bank statement's full credit history, not just salary-labeled
+    rows, so INCOME_MISMATCH can compare against actual account activity
+    rather than only rows that happen to say "salary."
+
+    Returns ``[]`` when no transaction table is detected, letting the caller
+    fall back to the loose single-line regex (graceful degrade).
     """
     lines = text.splitlines()
     header = _find_table_header(lines)
     if header is None:
         return []
-    start, column_order, has_balance = header
+    start, column_order, _has_balance = header
     credits: list[float] = []
     for line in lines[start + 1:]:
-        low = line.lower()
-        if not any(kw in low for kw in _SALARY_ROW_KEYWORDS):
+        if row_keywords is not None and not any(kw in line.lower() for kw in row_keywords):
             continue
-        credit = _pick_credit(_money_tokens(line), column_order, has_balance)
+        credit = _pick_credit(_money_columns(line), column_order)
         if credit is not None and credit > 0:
             credits.append(credit)
     return credits
+
+
+def _extract_salary_credits(text: str) -> list[float]:
+    """Table-aware salary-credit extraction -- thin wrapper preserving the
+    historical name/signature (the only thing tests call directly)."""
+    return _extract_table_credits(text, row_keywords=_SALARY_ROW_KEYWORDS)
 
 
 def _extract_income(text: str) -> tuple[str, str] | None:
@@ -694,10 +714,23 @@ def extract_fields(text: str, doc_type: DocType) -> ExtractedFields:
     # LAND_RECORD, LEGAL) never gets salary_credits populated off a table-header
     # false-positive (a legal clause can contain "credit"/"debit"/"balance").
     table_credits = _extract_salary_credits(text)
+    # For a bank statement specifically (a multi-row transaction history, not
+    # a single-payment document like a salary slip), also try every credit
+    # row under the table header, not just salary-labeled ones -- gives
+    # INCOME_MISMATCH the account's actual credit activity instead of only
+    # rows that happen to say "salary." Falls back to the salary-keyword
+    # result (then the loose regex) if the all-rows pass finds nothing.
+    table_all_credits = (
+        _extract_table_credits(text, row_keywords=None)
+        if doc_type == DocType.BANK_STATEMENT else []
+    )
     if doc_type in (DocType.BANK_STATEMENT, DocType.SALARY_SLIP) or (
         doc_type == DocType.UNKNOWN and table_credits
     ):
-        if table_credits:
+        if doc_type == DocType.BANK_STATEMENT and table_all_credits:
+            salary_credits = table_all_credits
+            credit_label = "credit column (table-aware, all rows)"
+        elif table_credits:
             salary_credits = table_credits
             credit_label = "credit column (table-aware)"
         else:
