@@ -82,6 +82,14 @@ services:
     container_name: docverify-ml-model
     ports:
       - "8001:8001"
+    environment:
+      # L5 narrative (model/pipeline/llm.py). Optional: the model service
+      # starts and serves real scoring/anomalies with no dependency on this —
+      # generate_underwriting_report() is wrapped in a try/except that
+      # degrades to "AI underwriting summary unavailable" if ollama is
+      # unreachable or the model hasn't finished pulling yet (see the
+      # ollama-pull job below). Local dev without ollama still works.
+      - OLLAMA_HOST=http://ollama:11434
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
       interval: 15s
@@ -136,10 +144,52 @@ services:
       - docverify-net
     restart: unless-stopped
 
+  # L5 LLM narrative backend. Resource cost: the qwen2.5:3b pull below is
+  # ~2 GB on first run, and ollama needs a few GB of RAM headroom to serve
+  # it. Nothing else in the stack depends on this service — `model` calls it
+  # at request time and degrades gracefully if it's absent, still pulling,
+  # or unreachable, so a laptop that can't afford the RAM can just
+  # `docker compose up` everything except `ollama`/`ollama-pull`.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: docverify-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - docverify-net
+    restart: unless-stopped
+
+  # One-shot: pulls the exact model model/pipeline/llm.py calls
+  # (ollama.chat(model="qwen2.5:3b", ...)) and exits. Re-running
+  # `docker compose up` is a no-op once the model is cached in the
+  # ollama_data volume.
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: docverify-ollama-pull
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: ["ollama", "pull", "qwen2.5:3b"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - docverify-net
+    restart: "no"
+
 volumes:
   postgres_data:
     driver: local
   ledger_shared:
+    driver: local
+  ollama_data:
     driver: local
 
 networks:

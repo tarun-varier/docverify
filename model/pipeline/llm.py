@@ -1,5 +1,15 @@
 import json
+import os
+
 import ollama
+
+# ollama.chat() uses a client with timeout=None (unlimited wait) by default.
+# Under load or on constrained hardware, a hung/slow LLM would then block the
+# whole request until the *caller's* HTTP timeout fires a hard error instead
+# of the graceful "AI underwriting summary unavailable" degradation below —
+# defeating the point. Bound it explicitly so a slow LLM fails fast instead.
+_OLLAMA_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "60"))
+_client = ollama.Client(timeout=_OLLAMA_TIMEOUT_SECONDS)
 
 OUTPUT_SCHEMA = {
 
@@ -102,7 +112,7 @@ def generate_underwriting_report(report: dict) -> dict:
     exactly. Output valid JSON matching OUTPUT_SCHEMA only — no other text.
     """
     
-    response = ollama.chat(
+    response = _client.chat(
         model="qwen2.5:3b",
         messages=[
             {
