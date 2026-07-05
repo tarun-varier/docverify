@@ -26,10 +26,12 @@ old ``security → model /predict`` stub hop is retired — orchestration lives
 here now.
 """
 
+import asyncio
 import hashlib
 import json
 import logging
 import os
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -99,6 +101,28 @@ MODEL_ANALYZE_URL = f"{resolve_model_service_url().rstrip('/')}{resolve_model_an
 
 case_bundles: dict[str, list[dict[str, Any]]] = {}
 latest_results: dict[str, dict[str, Any]] = {}
+
+# ---------------------------------------------------------------------------
+# Per-case analysis progress (in-memory, single-instance dev — see buffer note
+# above). Phases are real orchestration transitions inside /analyze, not a
+# cosmetic timer: the frontend polls GET /cases/{id}/progress and advances its
+# step list only when the backend actually moves to the next phase.
+# ---------------------------------------------------------------------------
+
+ANALYZE_PHASES = [
+    "checking_ledger",
+    "running_pipeline",
+    "recording_audit",
+    "persisting_case",
+    "anchoring_ledger",
+    "done",
+]
+
+case_progress: dict[str, dict[str, Any]] = {}
+
+
+def _set_progress(case_id: str, phase: str, **extra: Any) -> None:
+    case_progress[case_id] = {"phase": phase, "updated_at": time.time(), **extra}
 
 
 # ---------------------------------------------------------------------------
@@ -308,48 +332,80 @@ async def analyze_case(
             detail=f"No scanned documents buffered for case {case_id}. Upload documents first.",
         )
 
-    case_hash = _case_content_hash(bundles)
-    cached_result = ledger_client.check_document(case_hash)
-    ledger_cache_hit = cached_result is not None
-    result = cached_result if ledger_cache_hit else _analyze_case(case_id, bundles, request_id)
-
-    # Layer 7 — audit trail now lives in the backend, next to persistence.
-    document_hashes = {
-        d.get("filename", f"doc_{i}"): d.get("sha256", "")
-        for i, d in enumerate(result.get("documents", []))
-    }
     try:
-        entry = audit.record(
-            case_id,
-            document_hashes,
-            int(result.get("fraud_score", 0) or 0),
-            str(result.get("risk_band", "")),
-        )
-        result["audit_entry"] = entry
-    except Exception as exc:  # audit must never sink a completed analysis
-        logger.warning("Audit record failed for case %s: %s", case_id, exc)
+        _set_progress(case_id, "checking_ledger", documents=len(bundles))
+        case_hash = _case_content_hash(bundles)
+        # Off the event loop: ledger_client makes a blocking RPC call, and a
+        # concurrent GET /progress poll must still be served while this runs.
+        cached_result = await asyncio.to_thread(ledger_client.check_document, case_hash)
+        ledger_cache_hit = cached_result is not None
 
-    persisted = db.save_case_result(result)
-    result["persisted"] = persisted
-    latest_results[case_id] = result
+        if ledger_cache_hit:
+            result = cached_result
+        else:
+            _set_progress(case_id, "running_pipeline", documents=len(bundles))
+            # Off the event loop: this is the long real call (OCR, forensics,
+            # cross-doc checks, registry correlation, scoring all happen in
+            # the model service during this one HTTP round trip).
+            result = await asyncio.to_thread(_analyze_case, case_id, bundles, request_id)
 
-    if not ledger_cache_hit:
-        ledger_client.record_document(
-            file_hash_hex=case_hash,
-            fraud_score=int(result.get("fraud_score", 0) or 0),
-            risk_band=str(result.get("risk_band", "")),
-            case_id=case_id,
-            result_json=json.dumps(result),
-        )
+        _set_progress(case_id, "recording_audit")
+        # Layer 7 — audit trail now lives in the backend, next to persistence.
+        document_hashes = {
+            d.get("filename", f"doc_{i}"): d.get("sha256", "")
+            for i, d in enumerate(result.get("documents", []))
+        }
+        try:
+            entry = audit.record(
+                case_id,
+                document_hashes,
+                int(result.get("fraud_score", 0) or 0),
+                str(result.get("risk_band", "")),
+            )
+            result["audit_entry"] = entry
+        except Exception as exc:  # audit must never sink a completed analysis
+            logger.warning("Audit record failed for case %s: %s", case_id, exc)
 
-    # The buffer's job is done; free the (page-PNG-heavy) bundles.
-    case_bundles.pop(case_id, None)
+        _set_progress(case_id, "persisting_case")
+        persisted = db.save_case_result(result)
+        result["persisted"] = persisted
+        latest_results[case_id] = result
+
+        if not ledger_cache_hit:
+            _set_progress(case_id, "anchoring_ledger")
+            await asyncio.to_thread(
+                ledger_client.record_document,
+                file_hash_hex=case_hash,
+                fraud_score=int(result.get("fraud_score", 0) or 0),
+                risk_band=str(result.get("risk_band", "")),
+                case_id=case_id,
+                result_json=json.dumps(result),
+            )
+
+        _set_progress(case_id, "done", ledger_cache_hit=ledger_cache_hit)
+    except Exception as exc:
+        _set_progress(case_id, "error", detail=str(exc))
+        raise
+    finally:
+        # The buffer's job is done; free the (page-PNG-heavy) bundles.
+        case_bundles.pop(case_id, None)
 
     logger.info(
         "Case %s analyzed: score=%s band=%s persisted=%s ledger_cache_hit=%s",
         case_id, result.get("fraud_score"), result.get("risk_band"), persisted, ledger_cache_hit,
     )
     return result
+
+
+@app.get("/cases/{case_id}/progress")
+async def get_case_progress(case_id: str):
+    """Poll target for the analyzing UI — real phase transitions, not a timer.
+
+    Returns {"phase": "idle"} for a case that hasn't started /analyze yet, so
+    the frontend can start polling before or after issuing the POST without
+    a 404 race.
+    """
+    return case_progress.get(case_id, {"phase": "idle"})
 
 
 @app.get("/cases/{case_id}/result")
