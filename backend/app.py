@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Any
 import urllib.error
@@ -9,6 +10,11 @@ from fastapi import Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
+
+from app.pipeline import analyze_case
+import ledger_client
+
+logger = logging.getLogger("docverify_backend")
 
 app = FastAPI(
     title="DocVerify API",
@@ -85,6 +91,13 @@ async def upload_file(file: UploadFile = File(...)):
         if not contents:
             raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
+        # ── Ledger cache check: skip sandbox + pipeline if hash is already on-chain ──
+        file_hash = ledger_client.file_sha256_hex(contents)
+        cached_result = ledger_client.check_document(file_hash)
+        if cached_result is not None:
+            logger.info(f"Ledger cache hit for {file.filename} ({file_hash[:12]}…)")
+            return cached_result
+
         request_id = uuid.uuid4().hex
         boundary = uuid.uuid4().hex
         content_type = file.content_type or "application/octet-stream"
@@ -127,6 +140,37 @@ async def upload_file(file: UploadFile = File(...)):
 
                 pending_uploads[request_id]["status"] = "processed"
 
+                # If sandbox cleared the file, run it through the analysis pipeline
+                if isinstance(gateway_result, dict) and gateway_result.get("status") == "CLEAN_AND_SANITIZED":
+                    try:
+                        case_result = analyze_case([(safe_filename, contents)])
+                        result = case_result.model_dump()
+                        # Attach sandbox metadata (sanitized page previews, ML prediction)
+                        result["sandbox"] = {
+                            "status": gateway_result.get("status"),
+                            "page_count": gateway_result.get("page_count"),
+                            "ml_prediction": gateway_result.get("ml_prediction"),
+                            "request_id": gateway_result.get("request_id"),
+                        }
+
+                        # ── Record on ledger for future cache hits ──
+                        ledger_client.record_document(
+                            file_hash_hex=file_hash,
+                            fraud_score=case_result.fraud_score,
+                            risk_band=case_result.risk_band,
+                            case_id=case_result.case_id,
+                            result_json=json.dumps(result),
+                        )
+
+                        return result
+                    except Exception as pipeline_exc:
+                        logger.exception("Pipeline analysis failed after sandbox clearance")
+                        raise HTTPException(
+                            status_code=500,
+                            detail=f"Document passed sandbox but pipeline analysis failed: {pipeline_exc}",
+                        )
+
+                # If sandbox returned something other than clean, return as-is
                 return gateway_result
 
         except urllib.error.HTTPError as exc:

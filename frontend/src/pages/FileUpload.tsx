@@ -1,28 +1,10 @@
 import { type ChangeEvent, type DragEvent, type KeyboardEvent, useMemo, useRef, useState } from 'react'
+import ResultsDashboard, { type CaseResult } from '../components/ResultsDashboard'
 
 type SecurityFinding = {
 	status?: string
 	threat?: string
 	findings?: string[]
-}
-
-type MLPrediction = {
-	is_fraudulent?: boolean
-	fraud_score?: number
-	confidence?: number
-	verdict?: string
-}
-
-type UploadResponse = {
-	status?: string
-	request_id?: string
-	prediction?: MLPrediction
-	ocr_extracted_text_sample?: string
-	page_details?: any[]
-	message?: string
-	filename?: string
-	content_type?: string | null
-	size?: number
 }
 
 const API_BASE_URL = (() => {
@@ -39,12 +21,23 @@ const API_BASE_URL = (() => {
 	return 'http://127.0.0.1:8000'
 })()
 
+function isCaseResult(payload: unknown): payload is CaseResult {
+	return (
+		typeof payload === 'object' &&
+		payload !== null &&
+		'case_id' in payload &&
+		'fraud_score' in payload &&
+		'documents' in payload
+	)
+}
+
 export default function FileUpload() {
 	const [selectedFile, setSelectedFile] = useState<File | null>(null)
 	const [isDragging, setIsDragging] = useState(false)
 	const [isUploading, setIsUploading] = useState(false)
+	const [uploadProgress, setUploadProgress] = useState('')
 	const [errorInfo, setErrorInfo] = useState<SecurityFinding | string | null>(null)
-	const [response, setResponse] = useState<UploadResponse | null>(null)
+	const [caseResult, setCaseResult] = useState<CaseResult | null>(null)
 
 	const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -71,7 +64,7 @@ export default function FileUpload() {
 
 		setSelectedFile(file)
 		setErrorInfo(null)
-		setResponse(null)
+		setCaseResult(null)
 	}
 
 	const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -93,6 +86,16 @@ export default function FileUpload() {
 		selectFile(event.dataTransfer.files?.[0] ?? null)
 	}
 
+	const handleReset = () => {
+		setSelectedFile(null)
+		setCaseResult(null)
+		setErrorInfo(null)
+		setUploadProgress('')
+		if (fileInputRef.current) {
+			fileInputRef.current.value = ''
+		}
+	}
+
 	const handleUpload = async () => {
 		if (!selectedFile) {
 			setErrorInfo('Choose a file before uploading.')
@@ -104,7 +107,8 @@ export default function FileUpload() {
 
 		setIsUploading(true)
 		setErrorInfo(null)
-		setResponse(null)
+		setCaseResult(null)
+		setUploadProgress('Sending to security sandbox…')
 
 		try {
 			const result = await fetch(`${API_BASE_URL}/upload`, {
@@ -112,6 +116,7 @@ export default function FileUpload() {
 				body: formData,
 			})
 
+			setUploadProgress('Processing response…')
 			const payload = await result.json().catch(() => null)
 
 			if (!result.ok) {
@@ -127,27 +132,46 @@ export default function FileUpload() {
 				return
 			}
 
-			setResponse(payload as UploadResponse)
+			// Check if this is a full CaseResult from the pipeline
+			if (isCaseResult(payload)) {
+				setCaseResult(payload as CaseResult)
+			} else {
+				// Sandbox-only response (shouldn't happen after our changes, but handle gracefully)
+				setErrorInfo('Received an unexpected response format from the server.')
+			}
 		} catch (uploadError) {
 			const msg = uploadError instanceof Error ? uploadError.message : 'Unable to communicate with backend.'
 			setErrorInfo(msg)
 		} finally {
 			setIsUploading(false)
+			setUploadProgress('')
 		}
 	}
 
+	// If we have a CaseResult, show the dashboard
+	if (caseResult) {
+		return (
+			<main className="min-h-screen bg-slate-950 text-slate-100 p-6 font-sans">
+				<div style={{ maxWidth: '56rem', margin: '0 auto' }}>
+					<ResultsDashboard result={caseResult} onReset={handleReset} />
+				</div>
+			</main>
+		)
+	}
+
+	// Otherwise show the upload form
 	return (
 		<main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6 font-sans">
 			<section className="w-full max-w-2xl rounded-3xl border border-slate-800 bg-slate-900/40 p-8 shadow-2xl backdrop-blur-md">
 				<div className="flex items-start justify-between gap-4 mb-6">
 					<div>
 						<p className="text-xs uppercase tracking-widest text-indigo-400 font-bold">DocVerify AI</p>
-						<h1 className="text-3xl font-extrabold tracking-tight mt-1 text-slate-100">Layer 0 PDF Verification</h1>
-						<p className="text-sm text-slate-400 mt-2">Upload a document to run Layer 0 static threat scanning & ML fraud analysis.</p>
+						<h1 className="text-3xl font-extrabold tracking-tight mt-1 text-slate-100">Document Verification</h1>
+						<p className="text-sm text-slate-400 mt-2">Upload a document to run security scanning & multi-layer fraud analysis.</p>
 					</div>
 					<div className="rounded-full bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 text-xs font-semibold text-emerald-400 flex items-center gap-2">
 						<span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-						Layer 0 Active
+						Pipeline Active
 					</div>
 				</div>
 
@@ -203,10 +227,26 @@ export default function FileUpload() {
 							disabled={!selectedFile || isUploading}
 							className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-6 py-3 text-sm font-bold text-white transition-all shadow-lg shadow-indigo-600/20 disabled:cursor-not-allowed disabled:opacity-50"
 						>
-							{isUploading ? 'Scanning & Verifying…' : 'Scan & Verify PDF'}
+							{isUploading ? 'Analyzing…' : 'Scan & Analyze'}
 						</button>
 					</div>
 				</div>
+
+				{/* Upload progress indicator */}
+				{isUploading && uploadProgress && (
+					<div className="mt-4 rounded-2xl border border-indigo-500/20 bg-indigo-500/5 p-4 animate-fade-in">
+						<div className="flex items-center gap-3">
+							<div className="upload-spinner" />
+							<div>
+								<p className="text-sm font-semibold text-indigo-300">{uploadProgress}</p>
+								<p className="text-xs text-slate-400 mt-0.5">This may take a moment for large documents…</p>
+							</div>
+						</div>
+						<div className="upload-progress-bar mt-3">
+							<div className="upload-progress-bar__fill" />
+						</div>
+					</div>
+				)}
 
 				{/* Structured Security Error / Rejection Card */}
 				{errorInfo && (
@@ -222,9 +262,9 @@ export default function FileUpload() {
 											Threat Level: {errorInfo.threat || 'HIGH'}
 										</span>
 									</div>
-									<span className="text-xs text-red-400/80 font-mono">Layer 0 Gateway Block</span>
+									<span className="text-xs text-red-400/80 font-mono">Security Gateway Block</span>
 								</div>
-								<p className="text-sm font-bold text-red-100 mb-2">Layer 0 Security Gateway Blocked This Document:</p>
+								<p className="text-sm font-bold text-red-100 mb-2">Security Gateway Blocked This Document:</p>
 								<ul className="list-disc list-inside space-y-1 text-sm text-red-300/90 font-mono bg-slate-950/60 p-3 rounded-xl border border-red-500/20">
 									{errorInfo.findings && errorInfo.findings.length > 0 ? (
 										errorInfo.findings.map((f, i) => <li key={i}>{f}</li>)
@@ -243,42 +283,8 @@ export default function FileUpload() {
 						)}
 					</div>
 				)}
-
-				{/* Successful Clean Verification Response */}
-				{response && (
-					<div className="mt-6 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5 text-emerald-100 shadow-xl animate-fade-in">
-						<div className="flex items-center justify-between border-b border-emerald-500/20 pb-3 mb-3">
-							<div className="flex items-center gap-2">
-								<span className="px-2.5 py-1 rounded-md bg-emerald-500/20 text-emerald-400 text-xs font-extrabold tracking-wider uppercase border border-emerald-500/30">
-									{response.prediction?.verdict || 'PASSED CLEAN'}
-								</span>
-							</div>
-							<span className="text-xs text-emerald-400/80 font-mono">Request: {response.request_id?.slice(0, 8)}...</span>
-						</div>
-						<div className="space-y-3">
-							<p className="text-sm font-semibold text-emerald-200">
-								{response.ocr_extracted_text_sample || 'Document successfully disarmed via CDR and verified clean by ML Model.'}
-							</p>
-							{response.prediction && (
-								<div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2">
-									<div className="p-3 bg-slate-950/60 rounded-xl border border-emerald-500/20 text-center">
-										<span className="block text-[10px] uppercase tracking-wider text-slate-400 font-bold">Fraud Score</span>
-										<span className="text-lg font-extrabold text-emerald-400 mt-0.5 block">{((response.prediction.fraud_score ?? 0) * 100).toFixed(1)}%</span>
-									</div>
-									<div className="p-3 bg-slate-950/60 rounded-xl border border-emerald-500/20 text-center">
-										<span className="block text-[10px] uppercase tracking-wider text-slate-400 font-bold">Confidence</span>
-										<span className="text-lg font-extrabold text-emerald-300 mt-0.5 block">{((response.prediction.confidence ?? 0) * 100).toFixed(1)}%</span>
-									</div>
-									<div className="p-3 bg-slate-950/60 rounded-xl border border-emerald-500/20 text-center col-span-2 sm:col-span-1">
-										<span className="block text-[10px] uppercase tracking-wider text-slate-400 font-bold">CDR Pages</span>
-										<span className="text-lg font-extrabold text-indigo-300 mt-0.5 block">{response.page_details?.length ?? 1} Page(s)</span>
-									</div>
-								</div>
-							)}
-						</div>
-					</div>
-				)}
 			</section>
 		</main>
 	)
 }
+
