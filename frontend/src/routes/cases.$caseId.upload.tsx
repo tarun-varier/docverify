@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate, useParams } from "@tanstack/react-router";
 import { AppShell, Card, PageTitle } from "@/components/app-shell";
-import { getCase, saveCase, addDocToCase } from "@/lib/mock-data";
+import { getCase, saveCase } from "@/lib/mock-data";
+import { uploadDocument, ApiError } from "@/lib/api";
 import { UploadCloud, FileText, X, Building2, Scale, Wallet, AlertCircle } from "lucide-react";
 import { useState, useRef } from "react";
 
@@ -15,18 +16,6 @@ const cats: { id: Cat; title: string; subtitle: string; Icon: typeof Building2 }
   { id: "legal", title: "Legal & Identity Documents", subtitle: "ID proofs, application, NOC", Icon: Scale },
   { id: "financial", title: "Financial Statements", subtitle: "Salary slips, bank statements, ITR", Icon: Wallet },
 ];
-
-const API_BASE_URL = (() => {
-  const configuredUrl = import.meta.env.VITE_API_URL ?? import.meta.env.VITE_BACKEND_URL;
-  if (configuredUrl) {
-    return configuredUrl.replace(/\/$/, '');
-  }
-  if (typeof window !== 'undefined' && window.location.hostname) {
-    const host = window.location.hostname === 'localhost' ? '127.0.0.1' : window.location.hostname;
-    return `${window.location.protocol}//${host}:8000`;
-  }
-  return 'http://127.0.0.1:8000';
-})();
 
 function formatFileSize(bytes: number) {
   if (bytes < 1024) return bytes + ' B';
@@ -95,34 +84,10 @@ function UploadPage() {
       [cat]: [...prev[cat], newEntry]
     }));
 
-    const formData = new FormData();
-    formData.append("file", file);
-
     try {
-      const res = await fetch(`${API_BASE_URL}/upload`, {
-        method: "POST",
-        body: formData,
-      });
-
-      const payload = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        // Remove the temporary file entry
-        setFiles(prev => ({
-          ...prev,
-          [cat]: prev[cat].filter(f => f.name !== file.name)
-        }));
-
-        if (payload && payload.detail) {
-          setErrorInfo(payload.detail);
-        } else {
-          setErrorInfo("Security Gateway or Backend returned an upload error.");
-        }
-        return;
-      }
-
-      // Upload succeeded! Update dynamic case state
-      addDocToCase(caseId, file.name, formatFileSize(file.size), payload, cat);
+      // Layer-0 scan + buffer the document under this case. Scoring happens
+      // later, in one shot, when "Run Analysis" calls /analyze.
+      await uploadDocument(caseId, file, cat);
 
       // Set status to done
       setFiles(prev => ({
@@ -131,11 +96,16 @@ function UploadPage() {
       }));
 
     } catch (err) {
+      // Remove the temporary file entry
       setFiles(prev => ({
         ...prev,
         [cat]: prev[cat].filter(f => f.name !== file.name)
       }));
-      setErrorInfo(err instanceof Error ? err.message : "Unable to communicate with backend.");
+      if (err instanceof ApiError) {
+        setErrorInfo(err.detail);
+      } else {
+        setErrorInfo(err instanceof Error ? err.message : "Unable to communicate with backend.");
+      }
     } finally {
       setUploadingCat(null);
       if (fileInputRef.current) fileInputRef.current.value = "";

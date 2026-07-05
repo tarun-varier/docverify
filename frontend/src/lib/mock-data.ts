@@ -198,83 +198,168 @@ export const saveCase = (c: Case) => {
   }
 };
 
-export const addDocToCase = (caseId: string, docName: string, docSize: string, payload: any, category: "land" | "legal" | "financial") => {
-  const c = getCase(caseId);
-  if (!c) return;
+// ---------------------------------------------------------------------------
+// Real-analysis adapter
+//
+// Maps a backend CaseResult (model /analyze output) onto the UI's Case shape so
+// the existing report / document / decision screens render real data with no
+// rewrite. The pipeline scores at the case level, so per-document subScores are
+// reconstructed from each document's own anomalies using the same severity
+// weights the backend uses.
+// ---------------------------------------------------------------------------
 
-  const isFraud = payload.ml_prediction?.prediction?.is_fraudulent ?? false;
-  const fraudScore = Math.round((payload.ml_prediction?.prediction?.fraud_score ?? 0) * 100);
-  const confidence = Math.round((payload.ml_prediction?.prediction?.confidence ?? 1.0) * 100);
+export interface RealAnomaly {
+  code: string;
+  layer: string;
+  severity: string;
+  title: string;
+  detail: string;
+  documents?: string[];
+  evidence?: Record<string, unknown>;
+}
 
-  const docId = `${caseId}-d${c.docs.length + 1}`;
-  const subScore = fraudScore;
+export interface RealDocReport {
+  filename: string;
+  sha256: string;
+  doc_type: string;
+  page_count: number;
+  text_chars: number;
+  ocr_used: boolean;
+  fields: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  anomalies: RealAnomaly[];
+  ela_image?: string | null;
+  suspicious_regions?: unknown[];
+}
 
-  const newDoc: CaseDoc = {
-    id: docId,
-    name: docName,
-    category,
-    size: docSize,
-    subScore,
-    summary: payload.ml_prediction?.ocr_extracted_text_sample?.slice(0, 150) || "Document successfully disarmed via CDR and verified by ML Model.",
-    metadata: {
-      created: payload.ml_prediction?.metadata?.CreationDate || new Date().toISOString().split('T')[0],
-      modified: payload.ml_prediction?.metadata?.ModDate || new Date().toISOString().split('T')[0],
-      software: payload.ml_prediction?.metadata?.Producer || "CDR Sanitizer",
-      pdfVersion: payload.ml_prediction?.metadata?.PDFVersion || "1.7",
-    },
-    anomalyRegions: isFraud ? [
-      { id: `${docId}-r1`, page: 1, label: "Layout anomalous or suspected tamper", box: { x: 20, y: 30, w: 40, h: 15 } }
-    ] : [],
-  };
+export interface CaseResult {
+  case_id: string;
+  analyzed_at: string;
+  elapsed_seconds: number;
+  fraud_score: number;
+  risk_band: string;
+  recommended_action: string;
+  recommendations: string[];
+  documents: RealDocReport[];
+  cross_document_anomalies: RealAnomaly[];
+  registry_anomalies: RealAnomaly[];
+  llm_summary?: Record<string, unknown>;
+  audit_entry?: { entry_hash?: string } & Record<string, unknown>;
+}
 
-  // We can attach custom fields (pages base64) directly to the document object
-  (newDoc as any).pages = payload.pages || [];
+const SEV_WEIGHT: Record<string, number> = { info: 0, low: 6, medium: 14, high: 26, critical: 40 };
 
-  c.docs.push(newDoc);
-  
-  // Update Case scores, risk, and hashes
-  c.score = Math.max(...c.docs.map(d => d.subScore), 0);
-  c.risk = riskLabel(c.score);
-  c.hash = payload.request_id || "N/A";
-  
-  // Clear and reconstruct anomalies based on new docs
-  c.anomalies = [];
-  c.conflicts = [];
+const toRisk = (s: string): RiskLevel =>
+  s === "critical" ? "critical" : s === "high" ? "high" : s === "medium" ? "medium" : "low";
 
-  c.docs.forEach((d) => {
-    if (d.subScore >= 50) {
-      c.anomalies.push({
-        id: `a-${d.id}`,
-        title: `Layout/content anomaly in ${d.name}`,
-        category: "Tamper Detection",
-        severity: d.subScore >= 80 ? "critical" : "high",
-        detail: `ML classification model flagged layout features. Fraud score: ${d.subScore}%. Confidence: ${confidence}%.`,
-        documentIds: [d.id]
-      });
+const catFromDocType = (t: string): "land" | "legal" | "financial" =>
+  t === "salary_slip" || t === "bank_statement" ? "financial" : t === "land_record" ? "land" : "legal";
+
+const uiCategory = (a: RealAnomaly): Anomaly["category"] => {
+  if (a.layer === "cross_document") return "Cross-Document Conflict";
+  if (a.layer === "registry") return "Registry Mismatch";
+  const code = (a.code || "").toLowerCase();
+  if (/meta|backdat|software|eof|modif|producer|creat/.test(code)) return "Metadata Anomaly";
+  return "Tamper Detection";
+};
+
+const pickMeta = (md: Record<string, unknown> | undefined, keys: string[]): string => {
+  if (!md) return "—";
+  for (const k of keys) {
+    for (const cand of [k, "/" + k, k.toLowerCase()]) {
+      const v = md[cand];
+      if (v != null && String(v).trim()) return String(v);
     }
+  }
+  return "—";
+};
+
+export function applyCaseResult(caseId: string, result: CaseResult): Case | undefined {
+  const c = getCase(caseId);
+  if (!c) return undefined;
+
+  const docs: CaseDoc[] = result.documents.map((d, i) => {
+    const subScore = Math.min(
+      100,
+      d.anomalies.reduce((s, a) => s + (SEV_WEIGHT[a.severity] ?? 0), 0),
+    );
+    const top = [...d.anomalies].sort(
+      (a, b) => (SEV_WEIGHT[b.severity] ?? 0) - (SEV_WEIGHT[a.severity] ?? 0),
+    )[0];
+    return {
+      id: `${caseId}-d${i + 1}`,
+      name: d.filename,
+      category: catFromDocType(d.doc_type),
+      size: `${d.page_count} pp`,
+      subScore,
+      summary:
+        top?.detail ||
+        (d.doc_type !== "unknown"
+          ? `Classified as ${d.doc_type.replace(/_/g, " ")}. No tamper indicators.`
+          : "No tamper indicators detected."),
+      metadata: {
+        created: pickMeta(d.metadata, ["CreationDate", "creation_date", "created"]),
+        modified: pickMeta(d.metadata, ["ModDate", "modified", "mod_date"]),
+        software: pickMeta(d.metadata, ["Producer", "Creator", "software", "producer", "creator"]),
+        pdfVersion: pickMeta(d.metadata, ["PDFVersion", "pdf_version", "version"]),
+      },
+      anomalyRegions: [],
+    };
   });
 
-  // Cross doc conflict if salary slips vs bank statement mismatch
-  const hasSalary = c.docs.some(d => d.name.toLowerCase().includes("salary"));
-  const hasBank = c.docs.some(d => d.name.toLowerCase().includes("bank"));
-  if (hasSalary && hasBank) {
-    c.conflicts.push({
-      id: `conf-${caseId}-1`,
-      description: "Income verification: salary slip claims contradict bank statement credit average.",
-      documentIds: c.docs.filter(d => d.category === "financial").map(d => d.id)
-    });
-  }
+  const idOfFile = (fn: string) => docs.find((d) => d.name === fn)?.id;
 
-  // Set external correlation details
-  c.external = [
-    { check: "Layer 0 Security Scan", status: "passed", detail: "Static checks clean. No JavaScript/Launch threats found." },
-    { check: "CDR Sanitization Process", status: "passed", detail: `Successfully rendered ${newDoc.pages.length} page(s) into flat pixels.` },
-    { check: "ML Classification Model", status: isFraud ? "failed" : "passed", detail: isFraud ? "Layout flagged as highly anomalous." : "No layout anomalies found." }
+  const allAnoms: RealAnomaly[] = [
+    ...result.documents.flatMap((d) => d.anomalies),
+    ...result.cross_document_anomalies,
+    ...result.registry_anomalies,
   ];
 
+  const anomalies: Anomaly[] = allAnoms.map((a, i) => ({
+    id: `an-${caseId}-${i}`,
+    title: a.title || a.code,
+    category: uiCategory(a),
+    severity: toRisk(a.severity),
+    detail: a.detail,
+    documentIds: (a.documents || []).map(idOfFile).filter(Boolean) as string[],
+  }));
+
+  const conflicts = result.cross_document_anomalies.map((a, i) => ({
+    id: `cf-${caseId}-${i}`,
+    description: a.detail || a.title,
+    documentIds: (a.documents || []).map(idOfFile).filter(Boolean) as string[],
+  }));
+
+  const totalPages = result.documents.reduce((n, d) => n + (d.page_count || 0), 0);
+  const external: Case["external"] = [
+    { check: "Layer 0 Security Scan", status: "passed", detail: "Static analysis clean; no JavaScript/OpenAction/Launch payloads." },
+    { check: "CDR Sanitization", status: "passed", detail: `Rendered ${totalPages} page(s) into flat, safe pixels.` },
+  ];
+  for (const a of result.registry_anomalies) {
+    external.push({ check: a.title || a.code, status: "failed", detail: a.detail });
+  }
+  if (result.registry_anomalies.length === 0) {
+    external.push({ check: "Registry Correlation", status: "passed", detail: "No registry mismatches detected." });
+  }
+
+  const score = Math.round(result.fraud_score);
+  let risk = (result.risk_band ? result.risk_band.toLowerCase() : riskLabel(score)) as RiskLevel;
+  if (!["low", "medium", "high", "critical"].includes(risk)) risk = riskLabel(score);
+
+  c.docs = docs;
+  c.anomalies = anomalies;
+  c.conflicts = conflicts;
+  c.external = external;
+  c.score = score;
+  c.risk = risk;
   c.status = "Ready for Review";
+  c.hash = result.audit_entry?.entry_hash
+    ? `0x${String(result.audit_entry.entry_hash).slice(0, 12)}…`
+    : c.hash;
+  c.auditId = result.case_id;
   saveCase(c);
-};
+  return c;
+}
 
 export const mockUsers = [
   { id: "U001", name: "Anita Verma", employeeId: "EMP-1042", email: "anita.verma@bank.in", role: "Underwriter", branch: "Howeville", status: "Active", lastLogin: "2024-11-10 09:14" },
