@@ -101,6 +101,45 @@ Date        Description         Balance      Debit       Credit
 01/05/2024  SALARY CREDIT       1,80,400.00  -           40,200.00
 """
 
+# A bank statement whose credit activity isn't all salary-labeled: two salary
+# rows plus one NEFT refund. Used to prove the generalized all-rows
+# extraction (5d) recovers the refund that the salary-keyword-filtered path
+# correctly excludes.
+BANK_WITH_UNLABELED_CREDIT = """ACME BANK - STATEMENT OF ACCOUNT
+Account Holder : Ravi Kumar
+Date        Description                       Debit       Credit      Balance
+01/04/2024  SALARY FOR 04/2024                -           40,200.00   1,40,200.00
+15/04/2024  NEFT CR-REFUND ORDER 9981         -           1,500.00    1,41,700.00
+01/05/2024  SALARY FOR 05/2024                -           40,200.00   1,81,900.00
+"""
+
+# Reproduces the exact dash-placeholder bug this refactor exists to fix: an
+# ATM withdrawal row where the empty credit column prints as "-". The old
+# _money_tokens/_pick_credit dropped the trailing balance and, left with one
+# remaining amount (the withdrawal), reported it as "the credit" -- wrong.
+# This never surfaced via the salary-keyword-filtered path (a withdrawal row
+# doesn't mention "salary"), but the new all-rows extraction (5d) considers
+# every row, so it must resolve the empty credit column as None, not 5000.
+BANK_WITH_DASH_PLACEHOLDER_DEBIT = """ACME BANK - STATEMENT OF ACCOUNT
+Account Holder : Ravi Kumar
+Date        Description                       Debit       Credit      Balance
+01/04/2024  SALARY FOR 04/2024                -           40,200.00   1,40,200.00
+05/04/2024  ATM Withdrawal                    5,000.00    -           1,35,200.00
+"""
+
+# A row whose Description cell has irregular internal 2+-space gaps ("SALARY
+# REF   1,234  MISC NOTE"), which splits into extra columnar-looking cells --
+# one of which ("1,234") happens to look money-formatted. This misaligns the
+# cell count against the header's 3-column order (debit/credit/balance),
+# and must be skipped rather than misattributing 1,234 or 40,200 as the
+# credit.
+BANK_WITH_MISALIGNED_ROW = """ACME BANK - STATEMENT OF ACCOUNT
+Account Holder : Ravi Kumar
+Date        Description                       Debit       Credit      Balance
+01/04/2024  SALARY REF   1,234  MISC NOTE      -           40,200.00   1,40,200.00
+01/05/2024  SALARY FOR 05/2024                -           40,200.00   1,81,900.00
+"""
+
 # A land record whose incidental note happens to be padded like a table and
 # names all three column words — classify() confidently calls this
 # LAND_RECORD (four strong keyword hits), so it must never leak a
@@ -169,6 +208,46 @@ def test_salary_credits_not_populated_on_non_financial_doc_type():
     dt, f = _fields(LAND_RECORD_TABULAR_NOTE, "land_record.pdf")
     assert dt == DocType.LAND_RECORD
     assert f.salary_credits == []
+
+
+# ---------------------------------------------------------------------------
+# 5d — generalized all-rows extraction (_extract_table_credits) for
+# BANK_STATEMENT: recovers non-salary-labeled credit rows without leaking
+# debit amounts, even when a row's cells don't cleanly align.
+# ---------------------------------------------------------------------------
+
+def test_salary_keyword_path_excludes_unlabeled_credit():
+    # The historical, keyword-filtered path must still ignore a non-salary
+    # credit row -- proves the old behavior is unaffected by 5d.
+    assert ingestion._extract_salary_credits(BANK_WITH_UNLABELED_CREDIT) == [40200.0, 40200.0]
+
+
+def test_all_rows_path_recovers_unlabeled_credit():
+    # extract_fields, forced to BANK_STATEMENT, should use the all-rows path
+    # and pick up the NEFT refund the salary-keyword path above excludes --
+    # this is the actual new recall 5d adds.
+    f = ingestion.extract_fields(BANK_WITH_UNLABELED_CREDIT, DocType.BANK_STATEMENT)
+    assert f.salary_credits == [40200.0, 1500.0, 40200.0], f.salary_credits
+
+
+def test_all_credits_excludes_debit_only_rows_with_dash_placeholder():
+    # Named regression test for the specific bug this refactor fixes: an ATM
+    # withdrawal's dash-placeholder credit column must resolve to "no
+    # credit," not the withdrawal amount, once every row (not just
+    # salary-labeled ones) is a candidate.
+    credits = ingestion._extract_table_credits(BANK_WITH_DASH_PLACEHOLDER_DEBIT, row_keywords=None)
+    assert credits == [40200.0], credits
+    assert 5000.0 not in credits
+
+
+def test_all_credits_skips_misaligned_row_without_misattribution():
+    # A row whose cell count doesn't match the header's column count (an
+    # extra columnar-looking fragment in the narration) must be skipped
+    # entirely -- not guessed at -- while other well-formed rows still
+    # extract normally.
+    credits = ingestion._extract_table_credits(BANK_WITH_MISALIGNED_ROW, row_keywords=None)
+    assert credits == [40200.0], credits
+    assert 1234.0 not in credits
 
 
 # ---------------------------------------------------------------------------
