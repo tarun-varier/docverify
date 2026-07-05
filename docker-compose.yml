@@ -28,12 +28,18 @@ services:
       - MODEL_SERVICE_URL=http://model:8001
       - MODEL_ANALYZE_PATH=/analyze
       - DATABASE_URL=postgresql://docverify:${POSTGRES_PASSWORD:-docverify_pass}@db:5432/docverify_db
+      - LEDGER_RPC_URL=http://ledger:8545
+      - LEDGER_CONTRACT_ADDRESS=${LEDGER_CONTRACT_ADDRESS:-}
+    volumes:
+      - ledger_shared:/shared:ro
     depends_on:
       security:
         condition: service_healthy
       model:
         condition: service_healthy
       db:
+        condition: service_healthy
+      ledger:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
@@ -111,8 +117,29 @@ services:
       - docverify-net
     restart: unless-stopped
 
+  ledger:
+    build:
+      context: .
+      dockerfile: ledger/Dockerfile
+    container_name: docverify-ledger
+    ports:
+      - "8545:8545"
+    volumes:
+      - ledger_shared:/shared
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf -X POST http://localhost:8545 -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"net_version\",\"params\":[],\"id\":1}' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - docverify-net
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+    driver: local
+  ledger_shared:
     driver: local
 
 networks:

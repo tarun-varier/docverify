@@ -11,9 +11,12 @@ Live request path (Step 5):
       │
       │  POST /cases/{case_id}/analyze
       ▼
+      │  check the on-chain ledger for a case with the same document set
+      │  (cache hit skips the model call) → otherwise
       │  POST model /analyze { case_id, documents:[bundles] } → CaseResult
       │  record the L7 audit hash-chain entry (backend owns durable state)
       │  persist the CaseResult to Postgres
+      │  record the result on the ledger for future cache hits
       ▼
     returns the CaseResult to the frontend
 
@@ -23,6 +26,7 @@ old ``security → model /predict`` stub hop is retired — orchestration lives
 here now.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -38,6 +42,7 @@ from pydantic import BaseModel
 
 import audit
 import db
+import ledger_client
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("docverify.backend")
@@ -201,6 +206,17 @@ def _analyze_case(case_id: str, bundles: list[dict[str, Any]], request_id: str) 
         )
 
 
+def _case_content_hash(bundles: list[dict[str, Any]]) -> str:
+    """Stable hash over a case's document hashes; the on-chain ledger cache key.
+
+    A CaseResult covers the whole case (multiple documents scored together —
+    e.g. INCOME_MISMATCH compares across documents), so the natural cache
+    granularity is the case's document set, not any single file.
+    """
+    doc_hashes = sorted(b.get("sha256", "") for b in bundles)
+    return hashlib.sha256("".join(doc_hashes).encode("utf-8")).hexdigest()
+
+
 # ---------------------------------------------------------------------------
 # Health / root
 # ---------------------------------------------------------------------------
@@ -280,8 +296,9 @@ async def analyze_case(
 ):
     """Run the full analysis over the case's buffered bundles.
 
-    Model analysis → L7 audit hash-chain (recorded here, in the backend) →
-    Postgres persistence → return the CaseResult.
+    Ledger cache check (by case document-set hash) → model analysis (on a
+    miss) → L7 audit hash-chain (recorded here, in the backend) → Postgres
+    persistence → record on the ledger → return the CaseResult.
     """
     request_id = x_request_id or uuid.uuid4().hex
     bundles = case_bundles.get(case_id)
@@ -291,7 +308,10 @@ async def analyze_case(
             detail=f"No scanned documents buffered for case {case_id}. Upload documents first.",
         )
 
-    result = _analyze_case(case_id, bundles, request_id)
+    case_hash = _case_content_hash(bundles)
+    cached_result = ledger_client.check_document(case_hash)
+    ledger_cache_hit = cached_result is not None
+    result = cached_result if ledger_cache_hit else _analyze_case(case_id, bundles, request_id)
 
     # Layer 7 — audit trail now lives in the backend, next to persistence.
     document_hashes = {
@@ -313,12 +333,21 @@ async def analyze_case(
     result["persisted"] = persisted
     latest_results[case_id] = result
 
+    if not ledger_cache_hit:
+        ledger_client.record_document(
+            file_hash_hex=case_hash,
+            fraud_score=int(result.get("fraud_score", 0) or 0),
+            risk_band=str(result.get("risk_band", "")),
+            case_id=case_id,
+            result_json=json.dumps(result),
+        )
+
     # The buffer's job is done; free the (page-PNG-heavy) bundles.
     case_bundles.pop(case_id, None)
 
     logger.info(
-        "Case %s analyzed: score=%s band=%s persisted=%s",
-        case_id, result.get("fraud_score"), result.get("risk_band"), persisted,
+        "Case %s analyzed: score=%s band=%s persisted=%s ledger_cache_hit=%s",
+        case_id, result.get("fraud_score"), result.get("risk_band"), persisted, ledger_cache_hit,
     )
     return result
 
