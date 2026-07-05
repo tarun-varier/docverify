@@ -15,6 +15,8 @@ _ACTION_TEMPLATES: dict[str, str] = {
     "META_MODIFIED_AFTER_CREATION": "Ask the applicant to explain post-issuance modifications.",
     "FONT_OUTLIER": "Manually inspect the flagged text fields against a reference copy.",
     "ELA_EDITED_REGIONS": "Review the highlighted regions; request the physical original.",
+    "COPY_MOVE_REGION": "A region of this document appears duplicated elsewhere on the "
+                        "page (e.g. a pasted seal or signature). Request the physical original.",
     "INCOME_MISMATCH": "Obtain 6 months of verified bank statements via account aggregator.",
     "NAME_MISMATCH": "Signature/name mismatch across documents. Recommend video KYC.",
     "PAN_MISMATCH": "Multiple PANs in one bundle. Escalate to fraud-prevention unit.",
