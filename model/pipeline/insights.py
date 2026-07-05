@@ -29,6 +29,8 @@ _ACTION_TEMPLATES: dict[str, str] = {
                           "a sub-registrar verified encumbrance certificate.",
     "REGISTRATION_DATE_CONFLICT": "Registration date conflicts with registry. Possible "
                                   "fabricated deed — escalate.",
+    "REGISTRY_RECENT_OWNERSHIP_CHANGE": "Registry shows a recent ownership change on this "
+                                        "survey number. Verify the seller chain independently.",
 }
 
 DIMINISHING_FACTOR = 0.85
