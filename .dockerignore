@@ -8,3 +8,7 @@ node_modules
 **/*.pyd
 .DS_Store
 temp/
+# Runtime audit ledger (L7) is written inside the container; never bake a stale
+# host copy into an image.
+**/audit_ledger.jsonl
+.env

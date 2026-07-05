@@ -166,4 +166,6 @@ class CaseResult(BaseModel):
     default_factory=dict,
     description="AI-generated underwriting explanation produced from deterministic pipeline output.",
     )
-    audit_entry: dict[str, Any]
+    # L7 audit is recorded by the backend service (next to persistence); the
+    # model leaves this empty and the backend fills it in before returning.
+    audit_entry: dict[str, Any] = Field(default_factory=dict)

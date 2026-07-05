@@ -183,7 +183,9 @@ async def scan_pdf_endpoint(
 ) -> JSONResponse:
     """
     Main scan endpoint called by the backend.
-    Performs static analysis, CDR sanitization, and forwards page images to the ML model.
+    Performs static analysis + PDF-native forensics on the original bytes, then
+    CDR sanitization, and returns an EvidenceBundle of safe artifacts. It does
+    not call the model — the backend orchestrates security → model.
     """
     if file.content_type not in {"application/pdf", "application/octet-stream", None}:
         raise HTTPException(
@@ -250,64 +252,14 @@ async def scan_pdf_endpoint(
                 detail=f"Unable to render PDF pages: {exc}",
             ) from exc
 
-        # Step 4: Forward page images to ML model for fraud detection
-        import urllib.request
-        import urllib.error
-        import json as json_mod
-        from utils import ML_SERVICE_URL
-
-        ml_result = None
-        try:
-            import uuid
-            boundary = uuid.uuid4().hex
-            body_parts = []
-
-            for idx, image in enumerate(images):
-                buf = BytesIO()
-                try:
-                    image.save(buf, format="PNG")
-                    png_bytes = buf.getvalue()
-                finally:
-                    buf.close()
-
-                body_parts.append(
-                    f"--{boundary}\r\n"
-                    f"Content-Disposition: form-data; name=\"files\"; filename=\"page_{idx + 1}.png\"\r\n"
-                    f"Content-Type: image/png\r\n\r\n".encode("utf-8")
-                    + png_bytes
-                    + b"\r\n"
-                )
-
-            body_parts.append(f"--{boundary}--\r\n".encode("utf-8"))
-            body = b"".join(body_parts)
-
-            ml_request = urllib.request.Request(
-                ML_SERVICE_URL,
-                data=body,
-                method="POST",
-                headers={
-                    "Content-Type": f"multipart/form-data; boundary={boundary}",
-                    "Accept": "application/json",
-                    **({
-                        "X-Request-ID": x_request_id
-                    } if x_request_id else {}),
-                },
-            )
-
-            with urllib.request.urlopen(ml_request, timeout=30) as response:
-                ml_result = json_mod.loads(response.read().decode("utf-8"))
-
-        except Exception as ml_err:
-            logger.warning(f"ML model call failed: {ml_err}")
-            ml_result = {
-                "status": "ML_UNAVAILABLE",
-                "error": str(ml_err),
-            }
-
-        # Step 5: Build the EvidenceBundle with sanitized page previews. The
+        # Step 4: Build the EvidenceBundle with sanitized page previews. The
         # forensic findings + native text were captured on the original bytes
         # above; `pages` are the flattened, safe artifacts everything downstream
         # is allowed to see.
+        #
+        # Security no longer calls the model itself — the backend orchestrates
+        # security (/scan) → model (/analyze).  This service's sole job is the
+        # Layer-0 guarantee plus emitting the safe EvidenceBundle.
         try:
             pages_b64 = [_image_to_base64_png(image) for image in images]
         finally:
@@ -333,7 +285,6 @@ async def scan_pdf_endpoint(
 
         return JSONResponse(content={
             **bundle.model_dump(),
-            "ml_prediction": ml_result,
             "request_id": x_request_id,
         })
 

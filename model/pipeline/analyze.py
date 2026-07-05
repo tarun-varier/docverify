@@ -14,7 +14,9 @@ and the analyzer runs everything that works on safe artifacts:
   L2  rehydrate security's pdf_anomalies · deferred backdating · ELA on PNGs
   L3  cross-document checks       L4  registry correlation
   L5  scoring + recommendations + (optional) LLM narrative
-  L7  audit hash-chain entry
+
+(L7, the audit hash-chain, is recorded by the backend service next to
+persistence — the model stays stateless.)
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
-from . import audit, cross_check, forensics, ingestion, insights, registry
+from . import cross_check, forensics, ingestion, insights, registry
 from .llm import generate_underwriting_report
 from .models import Anomaly, CaseResult, DocumentReport, DocType, Severity
 
@@ -211,15 +213,9 @@ def analyze_bundles(bundles: list[EvidenceBundleIn], case_id: str | None = None)
             "underwriter_notes": f"LLM generation failed: {exc}",
         }
 
-    # Layer 7 — audit trail (stays in the model service for now; moves to the
-    # backend, alongside Postgres, in Step 5).
-    entry = audit.record(
-        case_id,
-        {d.filename: d.sha256 for d in documents},
-        score,
-        band,
-    )
-
+    # Layer 7 — the audit hash-chain is now recorded by the **backend** service
+    # (next to Postgres persistence), not here.  The model stays stateless and
+    # leaves ``audit_entry`` empty; the backend fills it in on the way out.
     return CaseResult(
         case_id=case_id,
         analyzed_at=datetime.now(timezone.utc).isoformat(),
@@ -231,6 +227,5 @@ def analyze_bundles(bundles: list[EvidenceBundleIn], case_id: str | None = None)
         documents=documents,
         cross_document_anomalies=cross_anomalies,
         registry_anomalies=registry_anomalies,
-        audit_entry=entry,
         llm_summary=llm_summary,
     )

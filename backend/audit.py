@@ -1,8 +1,13 @@
-"""Layer 7 — Tamper-evident audit trail (mock-blockchain ready).
+"""Layer 7 — Tamper-evident audit trail (moved from the model service).
 
-Each analyzed case is appended to a JSONL ledger where every entry embeds
-the SHA-256 of the previous entry, so any retroactive edit breaks the
-chain. Swapping this file for a real ledger/chain is a storage change only.
+Each analyzed case is appended to a JSONL ledger where every entry embeds the
+SHA-256 of the previous entry, so any retroactive edit breaks the chain.
+
+L7 lives in the **backend** (not the model service) because the audit ledger is
+durable state that belongs next to persistence: the model container is
+ephemeral and stateless, while the backend owns the case lifecycle and the
+Postgres connection.  Swapping this JSONL file for a real ledger/chain (or a
+Postgres table) is a storage change only — the hash-chain contract is unchanged.
 """
 
 from __future__ import annotations
@@ -12,7 +17,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-LEDGER_PATH = Path(__file__).resolve().parent.parent / "data" / "audit_ledger.jsonl"
+LEDGER_PATH = Path(__file__).resolve().parent / "data" / "audit_ledger.jsonl"
 _GENESIS = "0" * 64
 
 
