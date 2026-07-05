@@ -1,23 +1,37 @@
 {
   "142/2A": {
-    "owner": "Ramesh Kumar",
     "village": "Devanahalli",
     "district": "Bengaluru Rural",
     "extent": "1.2 acres",
-    "last_transfer_date": "2019-03-14"
+    "ownership_history": [
+      {"owner": "Lakshmi Narayan", "date": "2005-06-01"},
+      {"owner": "Ramesh Kumar", "date": "2019-03-14"}
+    ]
   },
   "87/1B": {
-    "owner": "Sunita Devi",
     "village": "Kanakapura",
     "district": "Ramanagara",
     "extent": "0.5 acres",
-    "last_transfer_date": "2026-05-28"
+    "ownership_history": [
+      {"owner": "Girish Rao", "date": "2012-08-19"},
+      {"owner": "Sunita Devi", "date": "2026-05-28"}
+    ]
   },
   "203/4": {
-    "owner": "Mohammed Irfan",
     "village": "Hoskote",
     "district": "Bengaluru Rural",
     "extent": "2.0 acres",
-    "last_transfer_date": "2011-11-02"
+    "ownership_history": [
+      {"owner": "Mohammed Irfan", "date": "2011-11-02"}
+    ]
+  },
+  "301/7": {
+    "village": "Nelamangala",
+    "district": "Bengaluru Rural",
+    "extent": "0.8 acres",
+    "ownership_history": [
+      {"owner": "Farida Begum", "date": "2010-01-10"},
+      {"owner": "Suresh Gowda", "date": "2026-05-20"}
+    ]
   }
 }
