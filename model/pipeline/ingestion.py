@@ -1,8 +1,10 @@
 """Layer 1 — Document ingestion, OCR and structured field extraction.
 
-Accepts PDFs and images.  PDFs with a text layer are read directly via
-PyMuPDF; scanned pages and images fall back to Tesseract OCR when the
-binary is available.
+Runs inside the **model** service, which only ever sees *safe artifacts* — it
+never touches the original PDF.  Native text-layer extraction happens upstream
+in the security service (before CDR); this module supplies the OCR fallback for
+the flattened page PNGs when that native text is thin, plus classification and
+structured field extraction.
 
 Field extraction uses a two-pass hybrid pipeline:
 
@@ -21,8 +23,8 @@ score below HYBRID_CONFIDENCE_THRESHOLD are marked for manual review via
 ExtractedFields.extraction_meta — the value slots themselves remain None so
 downstream layers are unaffected.
 
-Public surface (must never change):
-  extract_text(filename, payload)   → (str, int, bool)
+Public surface:
+  ocr_png(png_bytes)                → str   (OCR one flattened page image)
   classify(text, filename)          → DocType
   extract_fields(text, doc_type)    → ExtractedFields
   IMAGE_EXTENSIONS                  (module-level set)
@@ -36,7 +38,6 @@ import re
 import shutil
 from datetime import datetime
 
-import fitz  # PyMuPDF
 from PIL import Image
 
 from .models import (
@@ -135,29 +136,18 @@ def _ocr_image(img: Image.Image) -> str:
     return pytesseract.image_to_string(img)
 
 
-def extract_text(filename: str, payload: bytes) -> tuple[str, int, bool]:
-    """Return (text, page_count, ocr_used) for a PDF or image payload."""
-    lower = filename.lower()
-    if any(lower.endswith(ext) for ext in IMAGE_EXTENSIONS):
-        img = Image.open(io.BytesIO(payload)).convert("RGB")
-        return _ocr_image(img), 1, True
+def ocr_png(png_bytes: bytes) -> str:
+    """OCR a single flattened page PNG — the safe artifact the model receives.
 
-    doc = fitz.open(stream=payload, filetype="pdf")
-    try:
-        parts: list[str] = []
-        ocr_used = False
-        for page in doc:
-            text = page.get_text()
-            if len(text.strip()) < 20 and TESSERACT_AVAILABLE:
-                # Scanned page: rasterize and OCR it.
-                pix = page.get_pixmap(dpi=200)
-                img = Image.open(io.BytesIO(pix.tobytes("png")))
-                text = _ocr_image(img)
-                ocr_used = True
-            parts.append(text)
-        return "\n".join(parts), doc.page_count, ocr_used
-    finally:
-        doc.close()
+    Used as the fallback when a page's native text layer (extracted upstream in
+    the security service) is empty or too thin, e.g. scanned/photographed
+    documents.  Returns "" when the Tesseract binary is unavailable so the model
+    degrades gracefully to native-text-only.
+    """
+    if not TESSERACT_AVAILABLE:
+        return ""
+    img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
+    return _ocr_image(img)
 
 
 def classify(text: str, filename: str = "") -> DocType:

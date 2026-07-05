@@ -3,3 +3,6 @@ __pycache__
 *.pyo
 *.pyd
 .DS_Store
+# Runtime audit ledger must never be baked into the image (it's written at
+# runtime; L7 now lives in the backend anyway). Keep data/registries/*.
+data/audit_ledger.jsonl

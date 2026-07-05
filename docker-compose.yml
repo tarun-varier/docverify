@@ -25,11 +25,15 @@ services:
     environment:
       - SECURITY_GATEWAY_URL=http://security:8002
       - SECURITY_GATEWAY_PATH=/scan
-      - SANDBOX_SERVICE_URL=http://security:8002
-      - SANDBOX_SERVICE_PATH=/scan
-      - DATABASE_URL=postgresql://docverify:docverify_pass@db:5432/docverify_db
+      - MODEL_SERVICE_URL=http://model:8001
+      - MODEL_ANALYZE_PATH=/analyze
+      - DATABASE_URL=postgresql://docverify:${POSTGRES_PASSWORD:-docverify_pass}@db:5432/docverify_db
     depends_on:
       security:
+        condition: service_healthy
+      model:
+        condition: service_healthy
+      db:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
@@ -49,12 +53,8 @@ services:
     ports:
       - "8002:8002"
     environment:
-      - ML_SERVICE_URL=http://model:8001/predict
       - MAX_FILE_SIZE_MB=10
       - ALLOWED_MIME_TYPES=application/pdf
-    depends_on:
-      model:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8002/health')\" || exit 1"]
       interval: 10s
@@ -95,7 +95,9 @@ services:
       - "5432:5432"
     environment:
       - POSTGRES_USER=docverify
-      - POSTGRES_PASSWORD=docverify_pass
+      # Dev default only. Override for any non-local use via a gitignored .env
+      # (POSTGRES_PASSWORD=...) or the shell environment. See .env.example.
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-docverify_pass}
       - POSTGRES_DB=docverify_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
