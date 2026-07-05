@@ -111,10 +111,15 @@ _NAME_RE = re.compile(
     re.IGNORECASE,
 )
 _INCOME_RE = re.compile(
-    r"(?:net\s+pay|net\s+salary|gross\s+salary|total\s+earnings|monthly\s+income)"
-    r"\s*[:\-]?\s*(?:rs\.?|inr|₹)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)",
+    # ``label`` is captured so we can prefer *net/take-home* pay (what the bank
+    # actually credits) over gross when a slip states both — comparing a gross
+    # claim against net credits would manufacture a false INCOME_MISMATCH.
+    r"(?P<label>net\s+pay|net\s+salary|take[\s-]?home(?:\s+(?:pay|salary))?"
+    r"|monthly\s+income|gross\s+salary|total\s+earnings)"
+    r"\s*[:\-]?\s*(?:rs\.?|inr|₹)?\s*(?P<amount>[0-9][0-9,]*(?:\.[0-9]{1,2})?)",
     re.IGNORECASE,
 )
+# Loose, single-line fallback used only when no transaction table is detected.
 _SALARY_CREDIT_RE = re.compile(
     r"(?:salary|sal\s+cr|salary\s+credit)[^\n]*?([0-9][0-9,]{2,}(?:\.[0-9]{1,2})?)",
     re.IGNORECASE,
@@ -126,6 +131,169 @@ _REG_DATE_RE = re.compile(
 )
 _ADDRESS_RE = re.compile(r"address\s*[:\-]\s*([^\n]{8,100})", re.IGNORECASE)
 _ANY_DATE_RE = re.compile(r"\b([0-9]{1,2}[-/][0-9]{1,2}[-/][0-9]{2,4}|[0-9]{4}-[0-9]{2}-[0-9]{2})\b")
+
+# ---------------------------------------------------------------------------
+# Tabular (bank-statement) extraction — column-aware, on flat text only.
+#
+# The model never receives word coordinates: it sees flat text (native PyMuPDF
+# ``get_text()`` or OCR of the flattened page PNGs).  So "table awareness" here
+# is reconstructed from the text itself — find the transaction-table header,
+# learn the left-to-right order of the debit/credit/balance columns, then for
+# each salary row read the value from the *credit* column instead of grabbing
+# the first number on the line (which on real statements is often a year in the
+# narration, a reference number, or the running balance).  When no table header
+# is found we return nothing and the caller falls back to the loose single-line
+# regex, so the previous behaviour is preserved on non-tabular input.
+# ---------------------------------------------------------------------------
+
+# Currency-formatted amount: thousands grouping (Indian 1,40,200 / Western
+# 140,200) and/or a 1-2 digit paise part.  Preferring formatted tokens lets us
+# ignore bare integers such as a year ("2024") or a reference number.
+_MONEY_FMT_RE = re.compile(r"\d{1,3}(?:,\d{2,3})+(?:\.\d{1,2})?|\d+\.\d{1,2}")
+# Fallback: bare integer (>=3 digits) for statements printed without grouping.
+_MONEY_BARE_RE = re.compile(r"\d{3,}")
+
+_CREDIT_HEADER_RE = re.compile(r"\b(?:credit|deposit)\b")
+_DEBIT_HEADER_RE = re.compile(r"\b(?:debit|withdrawal)\b")
+_BALANCE_HEADER_RE = re.compile(r"\bbalance\b")
+# Real headers are columnar — fields padded apart by runs of >=2 spaces. This
+# is what rules out prose that merely mentions "credit"/"debit"/"balance" in a
+# sentence (e.g. T&C boilerplate: "report any discrepancy in your debit/credit
+# or balance..."), which is single-spaced and never has that padding.
+_COLUMN_GAP_RE = re.compile(r"\s{2,}")
+_SALARY_ROW_KEYWORDS = (
+    "salary", "sal cr", "sal credit", "payroll", "wages", "remuneration",
+)
+
+
+def _money_tokens(line: str) -> list[float]:
+    """Return the currency amounts on a table row, left-to-right.
+
+    Date substrings are stripped first so a "01/04/2024" or a "04/2024" in the
+    narration is never read as money.  Currency-formatted tokens (grouped or
+    with a decimal part) are preferred; only when a row carries none do we fall
+    back to bare integers, keeping plain reference numbers out of the result.
+    """
+    cleaned = _ANY_DATE_RE.sub(" ", line)
+    raw_tokens = _MONEY_FMT_RE.findall(cleaned) or _MONEY_BARE_RE.findall(cleaned)
+    values: list[float] = []
+    for tok in raw_tokens:
+        value = _to_float(tok)
+        if value is not None:
+            values.append(value)
+    return values
+
+
+def _find_table_header(lines: list[str]) -> tuple[int, list[str], bool] | None:
+    """Locate a bank-statement transaction-table header line.
+
+    Returns ``(index, column_order, has_balance)`` where ``column_order`` lists
+    the money columns among {"debit", "credit", "balance"} in the left-to-right
+    order they appear, or ``None`` when there is no credit/deposit column paired
+    with a second money column (so the caller degrades to the loose regex).
+    """
+    for idx, line in enumerate(lines):
+        # Columnar padding first (cheap) — skips prose lines before doing any
+        # keyword search on them.
+        if len(_COLUMN_GAP_RE.findall(line)) < 2:
+            continue
+        low = line.lower()
+        credit_m = _CREDIT_HEADER_RE.search(low)
+        if credit_m is None:
+            continue
+        debit_m = _DEBIT_HEADER_RE.search(low)
+        balance_m = _BALANCE_HEADER_RE.search(low)
+        # Require a second money column so a stray "credit" word doesn't get
+        # mistaken for a transaction-table header.
+        if debit_m is None and balance_m is None:
+            continue
+        positioned = [("credit", credit_m.start())]
+        if debit_m is not None:
+            positioned.append(("debit", debit_m.start()))
+        if balance_m is not None:
+            positioned.append(("balance", balance_m.start()))
+        order = [name for name, _ in sorted(positioned, key=lambda p: p[1])]
+        return idx, order, balance_m is not None
+    return None
+
+
+def _pick_credit(
+    values: list[float], column_order: list[str], has_balance: bool
+) -> float | None:
+    """Choose the credit amount from one salary row's money tokens.
+
+    The running balance is usually the rightmost money column, but some
+    statements print it first — we drop it from whichever end matches its
+    position in ``column_order`` rather than assuming rightmost.  If it's
+    reported in neither end (unusual layout) we leave the tokens untouched
+    rather than guess and risk dropping a real credit/debit figure.  A salary
+    row usually fills only the credit (debit blank), leaving one amount; when
+    both debit and credit are present we disambiguate by the header's column
+    order.
+    """
+    amounts = list(values)
+    if has_balance and amounts and column_order:
+        if column_order[-1] == "balance":
+            amounts = amounts[:-1]
+        elif column_order[0] == "balance":
+            amounts = amounts[1:]
+    if not amounts:
+        return None
+    if len(amounts) == 1:
+        return amounts[0]
+    money_cols = [c for c in column_order if c != "balance"]
+    # Credit is the leftmost amount only when the header lists credit before debit.
+    if money_cols and money_cols[0] == "credit":
+        return amounts[0]
+    return amounts[-1]
+
+
+def _extract_salary_credits(text: str) -> list[float]:
+    """Table-aware salary-credit extraction from a bank statement's flat text.
+
+    Returns the credit-column amounts of the rows whose narration names a salary
+    deposit.  Returns ``[]`` when no transaction table is detected, letting the
+    caller fall back to the loose single-line regex (graceful degrade).
+    """
+    lines = text.splitlines()
+    header = _find_table_header(lines)
+    if header is None:
+        return []
+    start, column_order, has_balance = header
+    credits: list[float] = []
+    for line in lines[start + 1:]:
+        low = line.lower()
+        if not any(kw in low for kw in _SALARY_ROW_KEYWORDS):
+            continue
+        credit = _pick_credit(_money_tokens(line), column_order, has_balance)
+        if credit is not None and credit > 0:
+            credits.append(credit)
+    return credits
+
+
+def _extract_income(text: str) -> tuple[str, str] | None:
+    """Pick the monthly-income figure, preferring net/take-home over gross.
+
+    Returns ``(raw_amount, matched_label)`` for the winning match, or ``None``.
+    Runs regardless of document classification so a slip misclassified as
+    ``UNKNOWN`` still yields income for the cross-document comparison.
+    """
+    net: list[tuple[str, str]] = []       # (raw, label)
+    other: list[tuple[str, str]] = []
+    for m in _INCOME_RE.finditer(text):
+        raw = m.group("amount")
+        value = _to_float(raw)
+        if value is None:
+            continue
+        label = m.group("label").strip()
+        (net if label.lower().startswith(("net", "take")) else other).append((raw, label))
+    pool = net or other
+    if not pool:
+        return None
+    # Within the chosen pool take the largest figure (handles OCR-split labels
+    # and multiple net lines); _to_float is safe here — every raw already parsed.
+    raw, label = max(pool, key=lambda pair: _to_float(pair[0]) or 0.0)
+    return raw, label
 
 
 def _ocr_image(img: Image.Image) -> str:
@@ -244,19 +412,17 @@ def _regex_pass(text: str, doc_type: DocType) -> dict[str, tuple[str, str | None
     if m := _REG_DATE_RE.search(text):
         results["registration_date"] = (m.group(1), "registration date")
 
-    if doc_type == DocType.SALARY_SLIP:
-        amounts = _INCOME_RE.findall(text)
-        if amounts:
-            # FIX (robustness bug — _to_float raises on OCR-corrupted strings):
-            # Previously `max(amounts, key=lambda x: _to_float(x))` could raise
-            # ValueError if any amount string was unparseable (e.g. "1,23,").
-            # Now we filter to only parseable values before taking the max.
-            # If all values are unparseable we skip the field entirely rather
-            # than crashing _regex_pass, which would lose all other fields.
-            parseable = [(raw, v) for raw in amounts if (v := _to_float(raw)) is not None]
-            if parseable:
-                best_raw, _ = max(parseable, key=lambda pair: pair[1])
-                results["monthly_income"] = (best_raw, "net/gross salary")
+    # FIX (recall bug — income silently suppressed on a classification miss):
+    # income extraction used to be gated on ``doc_type == SALARY_SLIP``, so any
+    # classify() miss (OCR noise, non-standard template) dropped monthly_income
+    # entirely and with it the flagship INCOME_MISMATCH cross-check.  The
+    # _INCOME_RE labels (net/gross pay, monthly income) are specific enough to
+    # run unconditionally without false positives — and the cross-check only
+    # reads monthly_income off SALARY_SLIP documents anyway — so we always try,
+    # preferring net/take-home pay over gross (see _extract_income).
+    income = _extract_income(text)
+    if income is not None:
+        results["monthly_income"] = income
 
     # salary_credits and dates are list fields — handled separately in extract_fields.
     return results
@@ -517,35 +683,52 @@ def extract_fields(text: str, doc_type: DocType) -> ExtractedFields:
     # List fields (salary_credits, dates) — regex only, no semantic needed.
     # These are multi-value fields where semantic matching is impractical.
     # ------------------------------------------------------------------
-    if doc_type in (DocType.BANK_STATEMENT, DocType.SALARY_SLIP):
-        # FIX (robustness bug — unguarded _to_float in listcomp): previously a
-        # single OCR-corrupted salary token would raise ValueError and crash the
-        # entire extraction, losing all already-extracted fields.  Now we filter
-        # to successfully parsed values and log any that fail so they are
-        # visible in telemetry without aborting the pipeline.
-        salary_credits: list[float] = []
-        for raw_credit in _SALARY_CREDIT_RE.findall(text):
-            value = _to_float(raw_credit)
-            if value is not None and value > 0:
-                salary_credits.append(value)
-            else:
-                logger.debug(
-                    "Skipping unparseable salary credit token: %r", raw_credit
-                )
+    # Table-aware first: read the *credit column* of the transaction table so
+    # the value that feeds L3's flagship INCOME_MISMATCH is the salary deposit,
+    # not the running balance / a reference number / a year in the narration.
+    # Runs whenever a bank-style table is detected even if classification missed
+    # (doc_type UNKNOWN), and falls back to the loose single-line regex when no
+    # table header is present — preserving prior behaviour on non-tabular input.
+    # The UNKNOWN carve-out is deliberately narrow: it recovers classification
+    # misses, but a document confidently classified as something else (e.g.
+    # LAND_RECORD, LEGAL) never gets salary_credits populated off a table-header
+    # false-positive (a legal clause can contain "credit"/"debit"/"balance").
+    table_credits = _extract_salary_credits(text)
+    if doc_type in (DocType.BANK_STATEMENT, DocType.SALARY_SLIP) or (
+        doc_type == DocType.UNKNOWN and table_credits
+    ):
+        if table_credits:
+            salary_credits = table_credits
+            credit_label = "credit column (table-aware)"
+        else:
+            # FIX (robustness bug — unguarded _to_float in listcomp): a single
+            # OCR-corrupted salary token would raise ValueError and crash the
+            # entire extraction, losing all already-extracted fields.  Filter to
+            # successfully parsed values and log any that fail so they surface in
+            # telemetry without aborting the pipeline.
+            salary_credits = []
+            for raw_credit in _SALARY_CREDIT_RE.findall(text):
+                value = _to_float(raw_credit)
+                if value is not None and value > 0:
+                    salary_credits.append(value)
+                else:
+                    logger.debug(
+                        "Skipping unparseable salary credit token: %r", raw_credit
+                    )
+            credit_label = "salary/sal cr/salary credit"
         fields.salary_credits = salary_credits
 
         # FIX (metadata consistency — list fields had no extraction_meta entries):
         # salary_credits and dates were silently absent from extraction_meta,
         # causing KeyError for downstream audit systems that iterate all fields.
-        # We now record a synthetic meta entry so the audit layer has a complete
-        # picture.  We do not attempt per-element provenance (impractical for
-        # multi-value regex fields).
+        # We record a synthetic meta entry so the audit layer has a complete
+        # picture (no per-element provenance — impractical for multi-value fields).
         meta["salary_credits"] = _make_meta(
             method=ExtractionMethod.REGEX,
             confidence=1.0,
             validated=True,
             status=ExtractionStatus.OK if salary_credits else ExtractionStatus.NOT_FOUND,
-            matched_label="salary/sal cr/salary credit",
+            matched_label=credit_label,
         )
 
     # FIX (metadata consistency — dates field had no extraction_meta entry):
