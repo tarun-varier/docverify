@@ -31,8 +31,10 @@ if [ -n "$CONTRACT_ADDR" ]; then
   echo "  DocRegistry deployed at: $CONTRACT_ADDR"
   echo "================================================"
   echo ""
-  # Write to a file so other containers can read it if needed
-  echo "$CONTRACT_ADDR" > /app/contract_address.txt
+  # Write to the shared volume so the backend container can pick it up at
+  # startup without a manual LEDGER_CONTRACT_ADDRESS env var.
+  mkdir -p /shared
+  echo "$CONTRACT_ADDR" > /shared/contract_address.txt
 else
   echo "WARNING: Could not extract contract address from deployment output"
 fi

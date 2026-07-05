@@ -38,12 +38,19 @@ dist-ssr/
 coverage/
 *.tsbuildinfo
 
+# Stray package managers — this repo uses npm; the only Node project is frontend/
+pnpm-lock.yaml
+pnpm-workspace.yaml
+bun.lock
+/package.json
+/package-lock.json
+
 # Local environment files
 .env
 .env.*
 !.env.example
 
 # Runtime / generated artifacts
-data/audit_ledger.jsonl
+**/data/audit_ledger.jsonl
 samples/clean/
 samples/fraud/

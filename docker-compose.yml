@@ -10,7 +10,7 @@ services:
       - VITE_API_URL=http://localhost:8000
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy
     networks:
       - docverify-net
     restart: unless-stopped
@@ -25,14 +25,20 @@ services:
     environment:
       - SECURITY_GATEWAY_URL=http://security:8002
       - SECURITY_GATEWAY_PATH=/scan
-      - SANDBOX_SERVICE_URL=http://security:8002
-      - SANDBOX_SERVICE_PATH=/scan
-      - DATABASE_URL=postgresql://docverify:docverify_pass@db:5432/docverify_db
+      - MODEL_SERVICE_URL=http://model:8001
+      - MODEL_ANALYZE_PATH=/analyze
+      - DATABASE_URL=postgresql://docverify:${POSTGRES_PASSWORD:-docverify_pass}@db:5432/docverify_db
       - LEDGER_RPC_URL=http://ledger:8545
       - LEDGER_CONTRACT_ADDRESS=${LEDGER_CONTRACT_ADDRESS:-}
+    volumes:
+      - ledger_shared:/shared:ro
     depends_on:
       security:
-        condition: service_started
+        condition: service_healthy
+      model:
+        condition: service_healthy
+      db:
+        condition: service_healthy
       ledger:
         condition: service_healthy
     healthcheck:
@@ -53,12 +59,8 @@ services:
     ports:
       - "8002:8002"
     environment:
-      - ML_SERVICE_URL=http://model:8001/predict
       - MAX_FILE_SIZE_MB=10
       - ALLOWED_MIME_TYPES=application/pdf
-    depends_on:
-      model:
-        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8002/health')\" || exit 1"]
       interval: 10s
@@ -99,7 +101,9 @@ services:
       - "5432:5432"
     environment:
       - POSTGRES_USER=docverify
-      - POSTGRES_PASSWORD=docverify_pass
+      # Dev default only. Override for any non-local use via a gitignored .env
+      # (POSTGRES_PASSWORD=...) or the shell environment. See .env.example.
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-docverify_pass}
       - POSTGRES_DB=docverify_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -120,6 +124,8 @@ services:
     container_name: docverify-ledger
     ports:
       - "8545:8545"
+    volumes:
+      - ledger_shared:/shared
     healthcheck:
       test: ["CMD-SHELL", "curl -sf -X POST http://localhost:8545 -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"net_version\",\"params\":[],\"id\":1}' || exit 1"]
       interval: 10s
@@ -132,6 +138,8 @@ services:
 
 volumes:
   postgres_data:
+    driver: local
+  ledger_shared:
     driver: local
 
 networks:

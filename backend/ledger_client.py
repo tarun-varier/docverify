@@ -30,7 +30,35 @@ def _resolve_ledger_url() -> str:
     return "http://127.0.0.1:8545"
 
 LEDGER_RPC_URL     = _resolve_ledger_url()
-CONTRACT_ADDRESS   = os.getenv("LEDGER_CONTRACT_ADDRESS", "")
+
+# Contract deployment happens on the `ledger` container after its healthcheck
+# already passes (the healthcheck only confirms the RPC node is up), so an
+# env var read at import time can race an empty deploy. Resolve lazily per
+# call instead, falling back to the address the ledger container writes to
+# the shared volume once Hardhat Ignition finishes deploying DocRegistry.
+_CONTRACT_ADDRESS_CACHE: str = ""
+_CONTRACT_ADDRESS_FILE = "/shared/contract_address.txt"
+
+
+def _resolve_contract_address() -> str:
+    global _CONTRACT_ADDRESS_CACHE
+    if _CONTRACT_ADDRESS_CACHE:
+        return _CONTRACT_ADDRESS_CACHE
+
+    env_addr = os.getenv("LEDGER_CONTRACT_ADDRESS")
+    if env_addr:
+        _CONTRACT_ADDRESS_CACHE = env_addr
+        return env_addr
+
+    try:
+        with open(_CONTRACT_ADDRESS_FILE) as f:
+            file_addr = f.read().strip()
+    except OSError:
+        file_addr = ""
+
+    if file_addr:
+        _CONTRACT_ADDRESS_CACHE = file_addr
+    return file_addr
 
 # Hardhat default account #0 — pre-funded test account, well-known key.
 # Override via env vars for non-Hardhat networks.
@@ -191,14 +219,15 @@ def check_document(file_hash_hex: str) -> dict[str, Any] | None:
     Returns the cached CaseResult dict (with ledger_cached=True) if found,
     or None if not recorded or the ledger is unreachable (fail-open).
     """
-    if not CONTRACT_ADDRESS:
+    contract_address = _resolve_contract_address()
+    if not contract_address:
         logger.debug("LEDGER_CONTRACT_ADDRESS not set — skipping ledger check")
         return None
 
     try:
         # ── Step 1: documentExists(bytes32) ──
         calldata = _SEL_DOCUMENT_EXISTS + _encode_bytes32(file_hash_hex)
-        result   = _eth_call(CONTRACT_ADDRESS, calldata)
+        result   = _eth_call(contract_address, calldata)
 
         exists = bool(int(result, 16))
         if not exists:
@@ -207,7 +236,7 @@ def check_document(file_hash_hex: str) -> dict[str, Any] | None:
 
         # ── Step 2: getDocument(bytes32) ──
         calldata = _SEL_GET_DOCUMENT + _encode_bytes32(file_hash_hex)
-        result   = _eth_call(CONTRACT_ADDRESS, calldata)
+        result   = _eth_call(contract_address, calldata)
 
         # resultJson is the 4th return value → offset word at index 3
         result_json_str = _decode_return_string(result, word_index=3)
@@ -244,7 +273,8 @@ def record_document(file_hash_hex: str, fraud_score: int, risk_band: str,
     Static head = 5 words = 160 bytes. The first dynamic arg (riskBand)
     starts at byte 160.
     """
-    if not CONTRACT_ADDRESS:
+    contract_address = _resolve_contract_address()
+    if not contract_address:
         logger.debug("LEDGER_CONTRACT_ADDRESS not set — skipping ledger record")
         return False
 
@@ -260,7 +290,7 @@ def record_document(file_hash_hex: str, fraud_score: int, risk_band: str,
 
         calldata = _SEL_RECORD_DOCUMENT + hash_word + score_word + dynamic
 
-        tx_hash = _eth_send_transaction(CONTRACT_ADDRESS, calldata)
+        tx_hash = _eth_send_transaction(contract_address, calldata)
         logger.info(f"Ledger record OK — hash {file_hash_hex[:12]}… tx {tx_hash}")
         return True
 
