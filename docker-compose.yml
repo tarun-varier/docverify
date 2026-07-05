@@ -32,6 +32,7 @@ services:
       - LEDGER_CONTRACT_ADDRESS=${LEDGER_CONTRACT_ADDRESS:-}
     volumes:
       - ledger_shared:/shared:ro
+      - audit_ledger_data:/app/data
     depends_on:
       security:
         condition: service_healthy
@@ -140,6 +141,8 @@ volumes:
   postgres_data:
     driver: local
   ledger_shared:
+    driver: local
+  audit_ledger_data:
     driver: local
 
 networks:
