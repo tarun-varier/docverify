@@ -10,7 +10,6 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import canaraLogo from "@/assets/canara-bank-logo.png";
 
 interface NavItem {
   to: LinkProps["to"];
@@ -73,18 +72,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="flex flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-3">
           <div className="flex items-center gap-3">
-            <div
-              className="grid h-9 w-[168px] place-items-center rounded-lg bg-surface"
-              aria-label="Canara Bank"
-              title="Canara Bank"
-            >
-              <img
-                src={canaraLogo}
-                alt="Canara Bank"
-                className="h-7 w-auto select-none"
-                draggable={false}
-              />
-            </div>
             <div className="leading-tight">
               <div className="text-[11px] text-muted-foreground">Doc Verify · {pageLabel(path)}</div>
             </div>
