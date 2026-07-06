@@ -86,7 +86,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               />
             </div>
             <div className="leading-tight">
-              <div className="text-[11px] text-muted-foreground">Verify Sensei · {pageLabel(path)}</div>
+              <div className="text-[11px] text-muted-foreground">Doc Verify · {pageLabel(path)}</div>
             </div>
           </div>
           <div className="flex items-center gap-3">
