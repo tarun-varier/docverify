@@ -1,112 +1,125 @@
-# DocVerify — Pitch Deck
-*Real-time AI fraud detection for loan document verification*
+# DocVerify — Pitch Deck Script
+*Matches the 5-slide designed deck. Each slide's content is mapped against the required demo template — Slides 1&2 = Technology & Architecture, Slides 2-3-4 = Functionality/Capabilities, Slides 3-4-5 = USP — so it's clear which template bullet each block satisfies.*
+
+> **Two fixes applied vs. the current designed slides** (flagged, not silently changed — confirm before regenerating the visuals):
+> 1. **Branding mismatch**: Slide 1 header said "SURAKSHA HACKATHON 2026," Slide 5 footer said "Canara Bank Hackathon 2026." Standardized both to **"CANARA BANK SURAKSHA HACKATHON 2026"** — pick whichever is the actual event name and make both bookends match.
+> 2. **Tech-stack accuracy** (Slide 2): LayoutLM, pikepdf, ExifTool, and Kubernetes aren't in the actual codebase (verified against `model/requirements.txt`, `security/requirements.txt`, and `docker-compose.yml` this session — it's Tesseract + PyMuPDF/pdf2image for OCR/forensics, plain Docker Compose, no K8s). Swapped to what's real so a technical judge's follow-up question doesn't expose a gap.
 
 ---
 
-## Slide 1 — The Problem & Our Architecture
+## Slide 1 — Title / Hook
+*Template role: opens Slides 1&2's "Technology & Architecture" bucket via its block-flow diagram; everything else is the hook.*
 
-### The Problem
-Bank underwriters manually verify land records, property deeds, salary slips, and financial statements for every loan application. Three failure points cost banks crores every year:
-- **Invisible tampering** — edited PDF metadata, altered fonts, copy-pasted seals, overwritten numbers, with no visual tell.
-- **No cross-document sanity checking** — a salary slip claims ₹80,000, the bank statement shows ₹40,000, and nothing flags it.
-- **Delayed detection** — fraud surfaces after disbursement, when it's a legal and financial write-off, not a declined application.
+- Logo: **DocVerify** (shield icon)
+- Top-right: **CANARA BANK SURAKSHA HACKATHON 2026**
+- Title: **DocVerify**
+- Subtitle: **Real-Time Loan Document Fraud Intelligence**
+- Body: *"AI anomaly detection across land, legal & financial documents — one explainable Fraud Risk Score in under 90 seconds."*
+- 5-step flow strip (this **is** the architecture-overview diagram the template wants for Slide 1 — keep it, don't replace it):
+  `Ingest & OCR (PDFs · scans · deeds) → Tamper Forensics (Metadata · ELA · visual) → Cross-Doc Check (Connect every doc) → Registry Match (CERSAI · ROC · Land) → Score & Advise (0–100 + next action)`
+  - *Optional addition, one line under the strip:* "5-service microservice pipeline · sub-90-second SLA" — makes the architecture linkage explicit for a judge skimming past the icons.
+- Bottom callout: *"Banks lose crores to tampering manual underwriting can't see. **DocVerify catches it before disbursement.**"*
 
-### Our Architecture — A Security-First Microservice Pipeline
+---
 
-```
-┌────────────┐      ┌──────────────┐      ┌────────────────────┐      ┌─────────────────────┐
-│  Frontend  │ ───▶ │   Backend    │ ───▶ │   Security Gateway  │ ───▶ │   Model / Detection │
-│ React 19 + │      │  FastAPI     │      │   (Layer 0)         │      │   Service (L1–L5)    │
-│ TanStack   │      │  orchestrator│      │  malware reject +   │      │  OCR → forensics →   │
-│ Start      │ ◀─── │  + L7 audit  │ ◀─── │  CDR flatten        │ ◀─── │  cross-check →       │
-└────────────┘      └──────┬───────┘      └──────────────────────┘     │  registry → scoring  │
-                            │                                           └─────────────────────┘
-                            ▼
-                     ┌─────────────┐
-                     │  PostgreSQL │  (case results, JSONB + hash-chained audit ledger)
-                     └─────────────┘
-```
+## Slide 2 — Technology & Architecture (2/5)
+*Template role: the core of the "Technology & Architecture" bucket (system diagram already shown Slide 1; here: technologies + deployment/scale). The 7-layer list also does double duty as "Core features or modules" for the Functionality bucket — no move needed, just worth naming when presenting.*
 
-Each service runs in its **own Docker container with its own isolated build context** — the security gateway never shares a process with the code that renders untrusted PDFs, and the detection engine never touches a raw uploaded file, only sanitized artifacts.
+**Eyebrow:** TECHNOLOGY & ARCHITECTURE
+**Title:** A 7-Layer Detection Engine
 
-### Technology Stack
-| Layer | Tech |
+1. **Ingestion & OCR** — Text, seals, survey numbers & financial figures
+2. **Tamper & Forgery** — Metadata forensics + ELA + font/seal checks
+3. **Cross-Document Anomaly** — Income, ownership & identity conflicts
+4. **External Correlation** — PAN · CIN · land-record validation
+5. **Underwriting Insights** — Actionable, explainable recommendations
+6. **Officer Dashboard** — Highlighted regions + confidence score
+7. **Audit Trail** — Hash + timestamp, tamper-evident logs
+
+**Tech Stack** *(corrected to match the real build)*:
+- OCR / text extraction — **Tesseract**, native PDF text layer via **PyMuPDF**
+- Vision / forensics — **PyMuPDF** (metadata, font-outlier), **Error Level Analysis** on scanned pages
+- CDR / rasterization — **pdf2image (Poppler)**
+- Backend/services — **FastAPI** across all 3 services
+- Frontend — **React 19, TanStack Start**
+- Persistence — **PostgreSQL** (JSONB case results) + hash-chained JSONL audit ledger
+
+**Deploy & Scale** *(corrected)*:
+- Containerized microservices — **Docker Compose**, one isolated build context per service (frontend / backend / security / model / db)
+- Each service independently scalable — the OCR/detection service is the natural horizontal-scale point under load
+- Deployment target: a bank's private VPC or cloud, container-by-container — no shared dependency surface between the security gateway and the detection engine
+
+---
+
+## Slide 3 — Functionality / Capabilities (3/5)
+*Template role: core of the "Functionality" bucket (UX walkthrough). The "Explainable insights" card already bridges into the USP bucket (Slides 3-4-5) — this overlap is intentional, not a gap.*
+
+**Eyebrow:** FUNCTIONALITY / CAPABILITIES
+**Title:** What the Underwriter Sees
+
+**Left — Officer Dashboard mockup:**
+- Score: **78/100 — HIGH RISK**
+- Findings: 🔴 Metadata edited pre-submit · 🟠 Signature mismatch vs ID · 🔴 Income ₹80k vs ₹40k · 🟢 PAN structure valid
+- Action banner: **"Trigger Video KYC before approval"**
+
+**Right — From upload to verdict, 90 seconds:**
+`Upload (Any format) → Auto-analyze (7 layers) → Score (+ highlights) → Act (Next step)`
+
+**Explainable insights, not just a number** *(this is the USP bridge — call it out explicitly when presenting)*:
+- *"Metadata created 2 days before submission but claims registration year 2019 — possible backdating."*
+- *"Land record ownership changed 15 days before application — high flip risk."*
+
+---
+
+## Slide 4 — Unique Selling Point (4/5)
+*Template role: core of the "USP" bucket. Also satisfies Functionality's "real-world use case" bullet via the concrete income-mismatch example — another intentional overlap, no move needed.*
+
+**Eyebrow:** UNIQUE SELLING POINT
+**Title:** Documents That Talk to Each Other
+**Subtitle:** *"Most tools inspect one document. DocVerify connects them — and the conflicts between documents are where fraud actually hides."*
+
+**Flow:** Salary Slip + Bank Statement + ID/Land Deed → **Cross-Check Engine**
+
+| Most tools | DocVerify |
 |---|---|
-| Frontend | React 19, TanStack Start + Router + Query, Tailwind v4, Radix UI, Zod |
-| Backend orchestrator | FastAPI, psycopg3 |
-| Security gateway | FastAPI, PyMuPDF, pdf2image (Poppler), Pillow |
-| Detection engine | FastAPI, Tesseract OCR, NumPy, (Ollama LLM for narrative summaries) |
-| Persistence | PostgreSQL 16 (JSONB case results) |
-| Deployment | Docker Compose — 5 independently-scalable containers (frontend, backend, security, model, db) |
+| ❌ Check one document in isolation | ✅ Connects every document + registry |
+| ❌ Visual-only, misses hidden edits | ✅ Forensic: metadata, ELA, seals |
+| ❌ Fraud surfaces after disbursement | ✅ Caught before the money moves |
 
-### Deployment & Scalability
-- Stateless services behind Docker Compose today; each container can be **independently scaled or swapped** (e.g., the OCR/model service is the natural horizontal-scale point under load, since it's the CPU/GPU-heavy hop).
-- Clean service boundary means the detection engine can later be swapped for a GPU-backed inference cluster without touching the security gateway or frontend.
-- Postgres persistence is already wired for multi-instance deployments; the only current single-instance constraint is an in-memory per-case document buffer between "upload" and "analyze" — a natural next step is backing it with object storage/Redis for horizontal backend scaling.
+**Bottom chips:** 🔴 ₹80k slip vs ₹40k statement · 🔴 Owner ≠ registered name · 🟠 Name/address conflict
 
 ---
 
-## Slide 2 — How It Works: The Layered Detection Pipeline
+## Slide 5 — USP + Hackathon Relevance (Closing)
+*Template role: closes the "USP" bucket — security/integration strengths, innovation/roadmap, and explicit hackathon-theme relevance all land here.*
 
-**Every document is analyzed within seconds through 7 progressive layers before the underwriter ever sees a case:**
+**Eyebrow:** BUILT FOR CANARA BANK
+**Title:** Secure · Integrated · Future-Ready
 
-1. **Layer 0 — Security Sandbox (our addition, beyond the brief).** Every uploaded PDF is statically scanned for embedded JavaScript, launch actions, and auto-actions before anything else touches it, then **Content-Disarm-and-Reconstructed**: rasterized page-by-page into flat images. A malicious file is rejected outright — the detection engine never executes attacker-controlled content.
-2. **Layer 1 — Ingestion & OCR.** Native PDF text extraction where available, Tesseract OCR fallback for scans/photos, automatic document-type classification (salary slip, bank statement, land record, ID proof...), and structured field extraction (income, PAN, CIN, survey number, dates) with per-field confidence scoring.
-3. **Layer 2 — Tamper & Forgery Detection.** Metadata forensics (12+ editing-tool signatures, modified-vs-created timestamp gaps, incremental-save tampering), font-outlier detection, and Error Level Analysis to surface compressed/edited image regions invisible to the eye.
-4. **Layer 3 — Cross-Document Anomaly Detection (our core differentiator).** Most systems check one document in isolation. We connect them: salary slip vs. bank statement income mismatch, land ownership timeline vs. application date, identity/name/address consistency across every document in the case.
-5. **Layer 4 — External Registry Correlation.** PAN structural validation, CIN status, and land-record cross-checks against registry data — architected as a pluggable adapter so it drops into a bank's real CERSAI/ROC/land-record APIs with no pipeline changes.
-6. **Layer 5 — Underwriting Insights.** A deterministic, explainable severity-weighted scoring model turns raw anomalies into a 0–100 Fraud Risk Score and a risk band (LOW/MEDIUM/HIGH/CRITICAL), plus concrete recommended actions ("Signature mismatch — recommend video KYC").
-7. **Layer 7 — Tamper-Evident Audit Trail.** Every analysis is recorded in a SHA-256 hash-chained ledger — each entry embeds the previous entry's hash, so any retroactive edit to the audit log is cryptographically detectable. Built to anchor on-chain.
+| Secure by Design | Native Integration | Roadmap · Phase 2 |
+|---|---|---|
+| Tamper-evident hash + timestamp logs | Plugs into CERSAI, ROC & land APIs | Reusable verifiable credentials |
+| Hash-chained, blockchain-anchor-ready audit trail | Complements existing underwriting | 90 seconds → milliseconds |
+| Deployable inside the bank's own VPC | No rip-and-replace deployment | Aligned with DEPA & DID frameworks |
 
-### User Experience Walkthrough
-`Login → Dashboard (case queue, risk-sorted) → New Case (applicant + loan intake) → Document Upload (land / legal / financial, 3 categorized panels) → Live Analysis → Report (fraud score, per-document findings, cross-document conflicts) → Underwriting Decision → Audit Trail`
-
-The officer never manually inspects a PDF pixel-by-pixel — they get a scored, explained, evidence-linked case in the time it takes to make coffee.
-
-### Real-World Relevance
-This mirrors exactly how a bank's loan-processing desk already works — intake, document collection, verification, decision, audit — so it drops into an existing workflow rather than requiring officers to learn a new mental model. The registry layer is deliberately architected against a stable interface so a bank's existing CERSAI/ROC/state land-record integrations plug in without touching detection logic.
-
----
-
-## Slide 3 — What Makes This Different
-
-- **Security-first, not an afterthought.** We built a dedicated Content-Disarm-and-Reconstruction gateway *before* building the fraud detector — untrusted files are neutralized structurally, not just scanned. Most hackathon (and many production) fraud tools skip this and run detection directly on attacker-controlled bytes.
-- **Cross-document intelligence, not single-file scoring.** The unique value isn't "is this one PDF edited" — it's "does this applicant's story hold together across every document they submitted." That's the fraud pattern real underwriters actually chase and the hardest one to fake consistently.
-- **Explainable, not a black box.** Every fraud score decomposes into named, severity-weighted anomaly codes with plain-language recommendations — an underwriter can defend a decision to a regulator or a customer, unlike an opaque ML confidence number.
-- **Tamper-evident by design.** The audit ledger is hash-chained at the application layer today and architected to anchor to a smart contract — so the fraud *finding itself* can't be quietly altered after the fact, closing the loop on the exact trust problem the product solves for the bank's own documents.
-- **Graceful degradation everywhere.** No LLM server available? Narrative insights degrade to "unavailable" without breaking the score. No registry data for a given CIN? It's flagged as unverified, not silently ignored. The system fails safe, never silently wrong.
-
----
-
-## Slide 4 — USP, Continued: Security & Integration Strengths
-
-- **Defense in depth:** malicious-content rejection → CDR flattening → isolated microservice boundaries — an attacker who compromises the OCR/detection service still never had access to a live, executable PDF.
-- **Boundary discipline:** the security gateway and detection engine run from **separate Docker build contexts** with no shared code path — a deliberate architectural choice so a vulnerability in one service can't reach into the other's dependency surface.
-- **Integration-ready by contract, not by rewrite:** the registry correlation layer (Layer 4) is built behind a pluggable adapter interface specifically so a bank's real CERSAI/ROC/land-record systems can be swapped in without touching the detection pipeline — we designed for the bank's real APIs from day one, not just our own mock data.
-- **Performance:** the pipeline runs OCR, forensics, and cross-checks over an entire multi-document case and returns a fully explained, scored verdict inline — turning a manual review that takes an underwriter minutes-to-hours per document into a single automated pass.
-
-## Slide 5 — Relevance & Roadmap
-
-**Relevance to the hackathon theme:** directly targets a named, quantified pain point in bank loan operations — document fraud losses, underwriter time, and customer delay — with a working, demoable pipeline, not a slide-only concept.
-
-**Roadmap (explicitly scoped, not hand-waved):**
-- **Phase 2 — Reusable Verification:** once a customer's PAN/Aadhaar/bank statement pass verification, issue a **verifiable credential to a user-controlled wallet** — future loan applications skip re-running OCR and tamper detection entirely, cutting verification from 90 seconds to milliseconds. Aligned with India's DEPA and upcoming DID frameworks.
-- On-chain anchoring of the audit hash-chain (contract scaffolding already in progress).
-- Deeper forensic detectors: dedicated copy-move/seal-duplication detection, OCR preprocessing (deskew/denoise) for low-quality scans, table-aware statement parsing.
+**Closing banner:** *"90 seconds to trust. Zero blind spots."*
+**Right-aligned benefits:** Fewer NPAs · Faster approvals for honest borrowers · Real-time fraud intelligence
+**Footer:** DocVerify logo — **CANARA BANK SURAKSHA HACKATHON 2026** *(matches Slide 1 — see fix #1 above)*
 
 ---
 
 ## Live Demo Script (4 minutes)
 
-1. **(30s) Dashboard** — show the case queue, risk-sorted, color-coded.
+1. **(30s) Dashboard** — case queue, risk-sorted, color-coded.
 2. **(30s) New Case** — create a case with applicant/loan intake details.
-3. **(60s) Upload** — upload a clean document set into the three category panels; upload one deliberately malicious/malformed PDF to show Layer 0 rejecting it live.
-4. **(90s) Analysis → Report** — trigger analysis on a tampered document bundle (edited metadata + income mismatch planted), show the live fraud score, the anomaly breakdown by layer, and the cross-document conflict (salary slip vs. bank statement).
+3. **(60s) Upload** — upload a clean document set into the three category panels; upload one deliberately malformed PDF to show the Layer-0 security gateway rejecting it live.
+4. **(90s) Analysis → Report** — run analysis on a tampered document bundle (edited metadata + planted income mismatch); show the live fraud score, the per-layer anomaly breakdown, and the cross-document conflict (salary slip vs. bank statement) — this is Slide 3 and Slide 4 coming alive.
 5. **(30s) Decision & Audit** — record an underwriting decision, then show the audit trail entry and its hash-chain linkage to the previous entry.
 
 ## Anticipated Q&A Prep (2 minutes)
 
-- **"How do you handle a false positive?"** — Every anomaly is explainable and severity-weighted, not a binary reject; the underwriter always makes the final call, and the tool's job is to surface evidence, not auto-decline.
-- **"What if OCR misreads a document?"** — Every extracted field carries a confidence/provenance tag; low-confidence extractions are flagged for manual review rather than silently trusted.
-- **"Is this production-ready for a real bank?"** — The security/CDR boundary and audit hash-chain are built to production discipline; the registry integrations are mocked behind a real adapter interface pending a bank's actual CERSAI/ROC data-sharing agreement — that's an integration/legal step, not a rebuild.
+- **"How do you handle a false positive?"** — Every anomaly is explainable and severity-weighted, not a binary reject; the underwriter always makes the final call.
+- **"What if OCR misreads a document?"** — Every extracted field carries a confidence/provenance tag; low-confidence extractions go to manual review rather than being silently trusted.
+- **"Is this production-ready for a real bank?"** — The security/CDR boundary and audit hash-chain are built to production discipline; the registry integrations are mocked behind a real adapter interface pending a bank's actual CERSAI/ROC data-sharing agreement — an integration/legal step, not a rebuild.
 - **"Why microservices instead of a monolith?"** — Isolation: the highest-risk code (parsing untrusted PDFs) is quarantined in its own container with its own minimal dependency surface, separate from the detection logic and the customer-facing app.
+- **"What does LayoutLM/Kubernetes do in your stack?"** *(pre-empted by fix #2 above — don't claim these unless they're actually wired in before demo day.)*
